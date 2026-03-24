@@ -93,8 +93,8 @@ async function startServer() {
     });
   });
 
-  server.listen(port, () => {
-    console.log(`[api] server and websocket listening on port ${port}`);
+  server.listen(port, "0.0.0.0", () => {
+    console.log(`[api] server and websocket listening on port ${port} on 0.0.0.0`);
     startReminderJob();
     AutomationService.init();
   });
