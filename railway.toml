@@ -1,0 +1,10 @@
+[build] 
+ builder = "NIXPACKS" 
+ buildCommand = "pnpm install && pnpm build:server" 
+ 
+[deploy] 
+ startCommand = "node dist/server/_core/index.js" 
+ 
+[env] 
+ PORT = "3000" 
+ NODE_ENV = "production" 
