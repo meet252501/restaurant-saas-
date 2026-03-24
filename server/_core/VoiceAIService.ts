@@ -1,4 +1,5 @@
-import { Twilio } from "twilio";
+import twilioPkg from "twilio";
+const { Twilio } = twilioPkg;
 
 export class VoiceAIService {
   private static getClient(config: { sid?: string; token?: string }) {
