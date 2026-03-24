@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "TableBook",
+    "slug": "tablebook-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.tablebook.app"
+    },
+    "android": {
+      "package": "com.tablebook.app"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "7f166c70-db34-489b-a342-d9cf8012b72c"
+      }
+    }
+  }
+}
