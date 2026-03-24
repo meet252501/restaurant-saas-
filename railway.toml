@@ -3,7 +3,7 @@
  buildCommand = "pnpm install && pnpm build" 
  
 [deploy] 
- startCommand = "pnpm db:push && node dist/index.js" 
+ startCommand = "pnpm db:push && node dist/index.mjs" 
  
 [env] 
  PORT = "3000" 
