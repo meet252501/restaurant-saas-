@@ -21,8 +21,8 @@ function getHostName(): string {
 
 const host = getHostName();
 const port = process.env.EXPO_PUBLIC_SERVER_PORT || '3000';
-const HttpUrl = `https://tb-api-fast.loca.lt/api/trpc`;
-const WsUrl = `wss://tb-api-fast.loca.lt/api/trpc`;
+const HttpUrl = `https://restaurant-saas-production-a3d5.up.railway.app/api/trpc`;
+const WsUrl = `wss://restaurant-saas-production-a3d5.up.railway.app/api/trpc`;
 
 export function createTRPCClient() {
   return trpc.createClient({
