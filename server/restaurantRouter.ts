@@ -45,9 +45,9 @@ export const restaurantRouter = router({
       instagramUrl: z.string().optional(),
       googleMapsUrl: z.string().optional(),
       pinCode: z.string().optional(),
-      twilioSid: z.string().regex(/^AC[a-f0-9]{32}$/, "Invalid Twilio Account SID").optional(),
-      twilioToken: z.string().length(32, "Twilio Auth Token must be 32 characters").optional(),
-      twilioPhone: z.string().regex(/^\+[1-9]\d{1,14}$/, "Invalid Twilio Phone Number (E.164 required)").optional(),
+      twilioSid: z.union([z.literal(''), z.string().regex(/^AC[a-f0-9]{32}$/, "Invalid Twilio Account SID")]).optional(),
+      twilioToken: z.union([z.literal(''), z.string().length(32, "Twilio Auth Token must be 32 characters")]).optional(),
+      twilioPhone: z.union([z.literal(''), z.string().regex(/^\+[1-9]\d{1,14}$/, "Invalid Twilio Phone Number")]).optional(),
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();

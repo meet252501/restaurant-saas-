@@ -19,10 +19,13 @@ function createAuthContext(): { ctx: TrpcContext; clearedCookies: CookieCall[] }
     openId: "sample-user",
     email: "sample@example.com",
     name: "Sample User",
+    phone: null,
     loginMethod: "manus",
     role: "manager",
     restaurantId: "res_default",
     pinCode: "1111",
+    lastSignedIn: null,
+    createdAt: null,
   };
   
   const ctx: TrpcContext = {

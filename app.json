@@ -2,19 +2,43 @@
   "expo": {
     "name": "TableBook",
     "slug": "tablebook-app",
-    "version": "1.0.0",
+    "version": "1.0.3",
     "orientation": "portrait",
-    "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0a0f1e"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.tablebook.app"
     },
     "android": {
-      "package": "com.tablebook.app"
+      "package": "com.tablebook.app",
+      "versionCode": 4,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#0a0f1e"
+      },
+      "permissions": [
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.CAMERA",
+        "android.permission.INTERNET",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.VIBRATE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ]
     },
     "plugins": [
+      "expo-notifications",
       "expo-router",
+      "expo-secure-store",
       "expo-web-browser"
     ],
     "experiments": {
@@ -22,8 +46,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "7f166c70-db34-489b-a342-d9cf8012b72c"
-      }
+        "projectId": "56b65f60-c589-40c2-9214-5a6954c44fd4"
+      },
+      "router": {}
     }
   }
 }

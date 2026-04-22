@@ -11,6 +11,12 @@ expo-env.d.ts
 .env.production
 .env.staging
 
+# ── DATABASE: Never commit local DB or customer data ─────────────────────────
+*.db
+*.db-shm
+*.db-wal
+tablebook.db
+
 # Expo / Build artifacts
 .expo/
 dist/

@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, RefreshControl,
+  View, Text, ScrollView, TouchableOpacity, RefreshControl, Image,
   StyleSheet, SafeAreaView,
 } from 'react-native';
 import { Feather, MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
+import { QuickAccessButton } from '../../components/QuickAccessMenu';
 import { trpc } from '../../lib/trpc';
 import { Colors, Spacing, Typography, Radius, Shadows, appStyles } from '../../lib/theme';
 import { KOTPreview } from '../../components/KOTPreview';
@@ -93,30 +94,41 @@ const pb = StyleSheet.create({
 
 // ── Main Screen ────────────────────────────────────────────────────────────
 export default function DeliveryScreen() {
-  // Mock delivery data for offline mode
-  const [orders, setOrders] = useState([
-    { id: 'd1', platform: 'zomato', orderId: 'ZOM-8821', customerName: 'Arjun Kapur', status: 'preparing', total: 450, items: [{ name: 'Butter Chicken', qty: 1, price: 380 }, { name: 'Naan', qty: 2, price: 35 }] },
-    { id: 'd2', platform: 'swiggy', orderId: 'SWG-9901', customerName: 'Neha Verma', status: 'pending', total: 280, items: [{ name: 'Dal Makhani', qty: 1, price: 240 }, { name: 'Roti', qty: 2, price: 20 }] },
-    { id: 'd3', platform: 'zomato', orderId: 'ZOM-1102', customerName: 'Suresh Kumar', status: 'dispatched', total: 1200, items: [{ name: 'Family Pack Biryani', qty: 1, price: 1100 }, { name: 'Coke', qty: 2, price: 50 }] },
-  ]);
+  const trpcUtils = trpc.useUtils();
+  const { data: liveData, isLoading, refetch } = trpc.delivery.today.useQuery(undefined, { refetchInterval: 10000 });
 
-  const summary = { revenue: 8450, zomato: 12, swiggy: 8 };
-  const active = orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled').length;
-  const isLoading = false;
+  const ordersFromCloud = liveData?.orders ?? [];
+  const summaryFromCloud = liveData?.summary;
+  
+  // Combine live and mock (live takes priority)
+  const orders = ordersFromCloud.length > 0 ? ordersFromCloud : [
+    { id: 'd1', platform: 'zomato', orderId: 'ZOM-8821', customerName: 'Arjun Kapur', status: 'preparing', total: 450, items: [{ name: 'Butter Chicken', qty: 1, price: 380 }, { name: 'Naan', qty: 2, price: 35 }], placedAt: new Date(Date.now() - 15 * 60000).toISOString() },
+    { id: 'd2', platform: 'swiggy', orderId: 'SWG-9901', customerName: 'Neha Verma', status: 'pending', total: 280, items: [{ name: 'Dal Makhani', qty: 1, price: 240 }, { name: 'Roti', qty: 2, price: 20 }], placedAt: new Date(Date.now() - 5 * 60000).toISOString() },
+    { id: 'd3', platform: 'zomato', orderId: 'ZOM-1102', customerName: 'Suresh Kumar', status: 'dispatched', total: 1200, items: [{ name: 'Family Pack Biryani', qty: 1, price: 1100 }, { name: 'Coke', qty: 2, price: 50 }], placedAt: new Date(Date.now() - 45 * 60000).toISOString() },
+  ];
 
-  const updateStatus = { mutate: (args: any) => setOrders(prev => prev.map(o => o.id === args.orderId ? { ...o, status: args.status } : o)) };
-  const ingestOrder = { mutate: (args: any) => setOrders(prev => [{ id: Math.random().toString(), ...args }, ...prev]) };
-  const sendInvoice = { mutate: () => alert('Digital Invoice sent (Simulated)!') };
+  const summary = summaryFromCloud || { revenue: 8450, zomato: 12, swiggy: 8 };
+  const active = orders.filter((o: any) => o.status !== 'delivered' && o.status !== 'cancelled').length;
 
-  const [refreshing,        setRefreshing]        = useState(false);
+  const updateStatus = trpc.delivery.updateStatus.useMutation({
+    onSuccess: () => trpcUtils.delivery.today.invalidate(),
+  });
+  const ingestOrder = trpc.delivery.ingest.useMutation({
+    onSuccess: () => trpcUtils.delivery.today.invalidate(),
+  });
+  const sendInvoice = trpc.delivery.sendInvoice.useMutation({
+    onSuccess: () => alert('Digital Invoice sent via WhatsApp!'),
+    onError: (e) => alert('Error sending invoice: ' + e.message),
+  });
+
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedOrderForKOT, setSelectedOrderForKOT] = useState<any>(null);
-  const [isKOTVisible,      setIsKOTVisible]      = useState(false);
-  const [manualBillText,    setManualBillText]    = useState('');
-  const [isManualVisible,   setIsManualVisible]   = useState(false);
+  const [isKOTVisible, setIsKOTVisible] = useState(false);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 1000);
+    await refetch();
+    setRefreshing(false);
   };
 
   if (isLoading) {
@@ -133,28 +145,32 @@ export default function DeliveryScreen() {
     <SafeAreaView style={styles.safe}>
       <ScrollView
         style={styles.scroll}
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 100 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.accent} colors={[Colors.accent]} />}
       >
         {/* ── Header ─────────────────────────────────── */}
         <Animated.View entering={FadeInUp} style={styles.header}>
           <View>
+            <Text style={styles.greeting}>Zomato & Swiggy Orders</Text>
             <Text style={styles.title}>Delivery Hub 🛵</Text>
-            <Text style={styles.subtitle}>Live orders from Zomato & Swiggy</Text>
           </View>
-          <TouchableOpacity
-            style={styles.simulateBtn}
-            onPress={() => ingestOrder.mutate({
-              platform: Math.random() > 0.5 ? 'zomato' : 'swiggy',
-              orderId: `ORD-${Math.floor(Math.random() * 999999)}`,
-              customerName: 'Test Customer',
-              items: [{ name: 'Paneer Tikka', qty: 1, price: 180 }, { name: 'Butter Naan', qty: 2, price: 40 }],
-              total: 260,
-            })}
-          >
-            <Ionicons name="add" size={16} color={Colors.background} />
-            <Text style={styles.simulateTxt}>Simulate</Text>
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={[styles.simulateBtn, Shadows.md]}
+              onPress={() => ingestOrder.mutate({
+                platform: Math.random() > 0.5 ? 'zomato' : 'swiggy',
+                orderId: `ORD-${Math.floor(Math.random() * 999999)}`,
+                customerName: 'Test Customer',
+                items: [{ name: 'Paneer Tikka', qty: 1, price: 180 }, { name: 'Butter Naan', qty: 2, price: 40 }],
+                total: 260,
+              })}
+            >
+              <Ionicons name="add" size={16} color={Colors.textPrimary} />
+              <Text style={styles.simulateTxt}>Simulate</Text>
+            </TouchableOpacity>
+            <QuickAccessButton />
+          </View>
         </Animated.View>
 
         {/* ── Summary Row ────────────────────────────── */}
@@ -278,16 +294,6 @@ export default function DeliveryScreen() {
           })
         )}
 
-        {/* Manual Bill Preview */}
-        {isManualVisible && (
-          <View style={styles.manualBillBox}>
-            <Text style={styles.manualBillTitle}>📄 WhatsApp Bill Preview</Text>
-            <Text style={styles.manualBillContent}>{manualBillText}</Text>
-            <TouchableOpacity onPress={() => setIsManualVisible(false)} style={styles.dismissBtn}>
-              <Text style={styles.dismissTxt}>Dismiss</Text>
-            </TouchableOpacity>
-          </View>
-        )}
       </ScrollView>
 
       {selectedOrderForKOT && (
@@ -313,11 +319,21 @@ const styles = StyleSheet.create({
   loadingText:  { ...Typography.body, color: Colors.textSecondary },
 
   // Header
-  header:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: Spacing.xl, paddingBottom: Spacing.lg },
-  title:        { ...Typography.heading, color: Colors.textPrimary },
-  subtitle:     { ...Typography.bodySmall, color: Colors.textSecondary, marginTop: 2 },
-  simulateBtn:  { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.accent, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderRadius: Radius.full },
-  simulateTxt:  { ...Typography.caption, color: Colors.background, fontWeight: '700' },
+  header:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingTop: Spacing.xl, paddingBottom: Spacing.lg },
+  greeting:     { ...Typography.body, color: Colors.textSecondary },
+  title:        { ...Typography.heading, color: Colors.textPrimary, marginTop: 4 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: { ...Typography.body, color: Colors.textInverse, fontWeight: '700' },
+  simulateBtn:  { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.surfaceElevated, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: Spacing.md, paddingVertical: 10, borderRadius: Radius.full },
+  simulateTxt:  { ...Typography.caption, color: Colors.textPrimary, fontWeight: '700' },
 
   // Summary
   summaryRow:   { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.xl },

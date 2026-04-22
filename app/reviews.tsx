@@ -55,7 +55,7 @@ export default function ReviewsScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={Colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.headerSub}>Recent Google Reviews for {appName}</Text>
+        <Text style={styles.headerTitle}>Recent Google Reviews for {appName}</Text>
         <View style={styles.headerRight} />
       </View>
 

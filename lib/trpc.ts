@@ -21,26 +21,43 @@ function getHostName(): string {
 
 const host = getHostName();
 const port = process.env.EXPO_PUBLIC_SERVER_PORT || '3000';
-const HttpUrl = `https://restaurant-saas-production-a3d5.up.railway.app/api/trpc`;
-const WsUrl = `wss://restaurant-saas-production-a3d5.up.railway.app/api/trpc`;
+
+// Use localhost for web, IP for mobile, and override with production URL if needed
+const baseUrl = host === 'localhost' ? `http://localhost:${port}` : `http://${host}:${port}`;
+
+export const HttpUrl = `${baseUrl}/api/trpc`;
+export const WsUrl = baseUrl.replace('http', 'ws') + '/api/trpc';
 
 export function createTRPCClient() {
+  const wsClient = createWSClient({
+    url: WsUrl,
+  });
+
   return trpc.createClient({
     links: [
-      httpBatchLink({
-        url: HttpUrl,
-        transformer: superjson,
-        fetch(url, options) {
-          return fetch(url, { 
-            ...options, 
-            credentials: 'include',
-            headers: {
-              ...options?.headers,
-              'Bypass-Tunnel-Reminder': 'true',
-              'bypass-tunnel-reminder': 'true'
-            }
-          });
+      splitLink({
+        condition(op) {
+          return op.type === 'subscription';
         },
+        true: wsLink({
+          client: wsClient,
+          transformer: superjson,
+        }),
+        false: httpBatchLink({
+          url: HttpUrl,
+          transformer: superjson,
+          fetch(url, options) {
+            return fetch(url, { 
+              ...options, 
+              credentials: 'include',
+              headers: {
+                ...options?.headers,
+                'Bypass-Tunnel-Reminder': 'true',
+                'bypass-tunnel-reminder': 'true'
+              }
+            });
+          },
+        }),
       }),
     ],
   });

@@ -8,8 +8,8 @@ import { WebSocketServer } from "ws";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
-import { startReminderJob } from "../reminderJob";
 import { AutomationService } from "./automation";
+import { initCloudDB } from "./tursoClient";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -43,7 +43,7 @@ async function startServer() {
     res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
     res.header(
       "Access-Control-Allow-Headers",
-      "Origin, X-Requested-With, Content-Type, Accept, Authorization",
+      "Origin, X-Requested-With, Content-Type, Accept, Authorization, bypass-tunnel-reminder",
     );
     res.header("Access-Control-Allow-Credentials", "true");
 
@@ -93,9 +93,9 @@ async function startServer() {
     });
   });
 
-  server.listen(port, "0.0.0.0", () => {
+  server.listen(port, "0.0.0.0", async () => {
     console.log(`[api] server and websocket listening on port ${port} on 0.0.0.0`);
-    startReminderJob();
+    await initCloudDB();
     AutomationService.init();
   });
 

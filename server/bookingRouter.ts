@@ -2,21 +2,22 @@ import { z } from "zod";
 import { router, publicProcedure, protectedProcedure } from "./_core/trpc";
 import { bookings, customers, tables } from "../drizzle/schema";
 import { eq, and, sql } from "drizzle-orm";
-import { db } from "./db";
+import { db, isMockMode } from "./db";
 import { MOCK_TABLES, MOCK_BOOKINGS, MOCK_CUSTOMERS } from "./mockData";
 import { observable } from "@trpc/server/observable";
 import { ee, EVENTS } from "./events";
 
 import { NotificationService } from "./_core/notification";
+import { GoogleSheetsService, ManagerEmailService } from "./_core/googleSheets";
 
-import { PaymentService } from "./_core/paymentService";
+// paymentService was removed; using RazorpayService only
 import { RazorpayService } from "./_core/razorpayService";
 
 export const bookingRouter = router({
   listByDate: publicProcedure
     .input(z.object({ restaurantId: z.string(), date: z.string() })) // YYYY-MM-DD
     .query(async ({ input }) => {
-      if (!process.env.DATABASE_URL) {
+      if (isMockMode()) {
         return MOCK_BOOKINGS.filter(b => b.restaurantId === input.restaurantId && b.bookingDate === input.date);
       }
       return await db.select()
@@ -32,7 +33,7 @@ export const bookingRouter = router({
   getById: publicProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ input }) => {
-      if (!process.env.DATABASE_URL) {
+      if (isMockMode()) {
         return MOCK_BOOKINGS.find(b => b.id === input.id) || null;
       }
       const result = await db
@@ -122,7 +123,7 @@ export const bookingRouter = router({
       restaurantId: z.string(),
        customerId: z.string().optional(),
       customerName: z.string().refine(val => !val || !/[;\"\-\-]/.test(val), "Invalid characters in name").optional(),
-      customerPhone: z.string().regex(/^\+?[1-9]\d{9,14}$/, "Invalid phone number format (e.g., +919999999999 or 9999999999)"),
+      customerPhone: z.string().regex(/^\+?[0-9]{10,15}$/, "Invalid phone number format (e.g., +919999999999 or 9999999999)"),
       tableId: z.string().optional(),
       bookingDate: z.string(),
       bookingTime: z.string(),
@@ -134,7 +135,7 @@ export const bookingRouter = router({
     }))
     .mutation(async ({ input }) => {
       let customerId = input.customerId;
-      const isMock = !process.env.DATABASE_URL;
+      const isMock = isMockMode();
 
       // Handle customer lookup/creation if only name/phone provided
       if (!customerId && input.customerPhone) {
@@ -211,7 +212,7 @@ export const bookingRouter = router({
         specialRequests: input.notes,
         coverCharge: input.coverChargeAmount || 0,
         paymentStatus: 'unpaid',
-        payment_id: `pay_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        payment_id: `pay_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
       };
 
       if (isMock) {
@@ -268,6 +269,21 @@ export const bookingRouter = router({
         input.partySize
       ).catch(err => console.error("Notification failed:", err));
 
+      // 🔗 Sync to Google Sheets + alert manager
+      const bookingRow = {
+        id: newBooking.id,
+        customerName: input.customerName || "Guest",
+        customerPhone: input.customerPhone,
+        bookingDate: input.bookingDate,
+        bookingTime: input.bookingTime,
+        partySize: input.partySize,
+        status: "confirmed",
+        source: input.source,
+        tableId: tableId,
+      };
+      GoogleSheetsService.appendBooking(bookingRow).catch(err => console.error("[Sheets] Booking sync failed:", err));
+      ManagerEmailService.sendNewBookingAlert(bookingRow).catch(err => console.error("[ManagerEmail] Alert failed:", err));
+
       ee.emit(EVENTS.BOOKINGS_CHANGED);
 
       if (input.partySize >= 6) {
@@ -294,17 +310,17 @@ export const bookingRouter = router({
   updateStatus: publicProcedure
     .input(z.object({
       id: z.string(),
-      status: z.enum(["pending", "confirmed", "checked_in", "completed", "cancelled", "no_show"]),
+      status: z.enum(["pending", "confirmed", "seated", "done", "cancelled", "no_show"]),
     }))
     .mutation(async ({ input }) => {
-      if (!process.env.DATABASE_URL) {
+      if (isMockMode()) {
         const mockIdx = MOCK_BOOKINGS.findIndex((b) => b.id === input.id);
         if (mockIdx !== -1) {
           const booking = MOCK_BOOKINGS[mockIdx];
           booking.status = input.status;
 
-          // Commercial Integration: Send Feedback Request on Check-out
-          if (input.status === "completed") { // Note: using 'completed' as per the schema's check-out equivalent
+          // Send Feedback Request on Check-out (SQLite schema: status 'done')
+          if (input.status === "done") {
             NotificationService.sendFeedbackRequest(
               (booking as any).customerPhone || "+91 9999999999",
               (booking as any).customerName || "Guest"

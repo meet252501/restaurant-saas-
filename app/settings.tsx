@@ -9,13 +9,14 @@ import { trpc } from '../lib/trpc';
 import { Colors, Spacing, Typography, Radius, Shadows } from '../lib/theme';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSaaSStore, ThemeColor } from '../lib/saas-store';
+import { useDynamicTheme } from '../lib/useDynamicTheme';
 
-const THEMES: { id: ThemeColor; hex: string; name: string }[] = [
-  { id: 'emerald', hex: '#10b981', name: 'Emerald' },
-  { id: 'blue',    hex: '#3b82f6', name: 'Ocean'   },
-  { id: 'rose',    hex: '#f43f5e', name: 'Rose'    },
-  { id: 'amber',   hex: '#f59e0b', name: 'Amber'   },
-  { id: 'violet',  hex: '#8b5cf6', name: 'Violet'  },
+const THEME_OPTIONS: { id: ThemeColor; label: string; hex: string }[] = [
+  { id: 'emerald', label: 'Emerald', hex: '#10b981' },
+  { id: 'blue', label: 'Blue', hex: '#3b82f6' },
+  { id: 'rose', label: 'Rose', hex: '#f43f5e' },
+  { id: 'amber', label: 'Amber', hex: '#f59e0b' },
+  { id: 'violet', label: 'Violet', hex: '#8b5cf6' },
 ];
 
 function Section({ title, icon, children }: { title: string; icon: any; children: React.ReactNode }) {
@@ -24,7 +25,7 @@ function Section({ title, icon, children }: { title: string; icon: any; children
     <View style={styles.section}>
       <Pressable style={styles.sectionHeader} onPress={() => setOpen(o => !o)}>
         <View style={styles.sectionTitleRow}>
-          <Ionicons name={icon} size={18} color={Colors.accent} />
+          <Ionicons name={icon} size={18} color={Colors.textSecondary} />
           <Text style={styles.sectionTitle}>{title}</Text>
         </View>
         <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.textTertiary} />
@@ -60,8 +61,9 @@ function Field({ label, value, onChangeText, placeholder, icon, keyboardType, se
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const theme = useDynamicTheme();
   const { data: restaurant, isLoading } = trpc.restaurant.info.useQuery();
-  const { appName, themeColor, setAppName, setThemeColor } = useSaaSStore();
+  const { appName, setAppName, themeColor, setThemeColor } = useSaaSStore();
 
   const updateMutation = trpc.restaurant.updateInfo.useMutation({
     onSuccess: () => {
@@ -88,6 +90,8 @@ export default function SettingsScreen() {
     twilioSid: '',
     twilioToken: '',
     twilioPhone: '',
+    zomatoId: '',
+    swiggyId: '',
   });
 
   React.useEffect(() => {
@@ -115,6 +119,8 @@ export default function SettingsScreen() {
         twilioSid: restaurant.twilioSid || '',
         twilioToken: restaurant.twilioToken || '',
         twilioPhone: restaurant.twilioPhone || '',
+        zomatoId: (restaurant as any).zomatoId || '',
+        swiggyId: (restaurant as any).swiggyId || '',
       });
     }
   }, [restaurant]);
@@ -142,6 +148,8 @@ export default function SettingsScreen() {
       ...(form.twilioSid ? { twilioSid: form.twilioSid } : {}),
       ...(form.twilioToken ? { twilioToken: form.twilioToken } : {}),
       ...(form.twilioPhone ? { twilioPhone: form.twilioPhone } : {}),
+      ...((form.zomatoId as any) ? { zomatoId: form.zomatoId } : {}),
+      ...((form.swiggyId as any) ? { swiggyId: form.swiggyId } : {}),
     });
   };
 
@@ -168,8 +176,8 @@ export default function SettingsScreen() {
 
         {/* Identity */}
         <View style={styles.identityCard}>
-          <View style={styles.logoCircle}>
-            <Ionicons name="restaurant" size={40} color={Colors.accent} />
+          <View style={[styles.logoCircle, { backgroundColor: theme.primaryDim }]}>
+            <Ionicons name="restaurant" size={40} color={theme.primary} />
           </View>
           <Text style={styles.identityName}>{appName}</Text>
           <Text style={styles.identityRole}>Owner Control Panel</Text>
@@ -179,20 +187,33 @@ export default function SettingsScreen() {
         <Section title="SaaS Branding" icon="color-palette-outline">
           <Field label="App Display Name" value={appName} onChangeText={setAppName}
             placeholder="e.g. Green Apple" icon="text-outline" />
+            
           <Text style={styles.fieldLabel}>Theme Color</Text>
           <View style={styles.colorRow}>
-            {THEMES.map(t => (
+            {THEME_OPTIONS.map((t) => (
               <Pressable
-                key={t.id} onPress={() => setThemeColor(t.id)}
-                style={[styles.colorCircle, { backgroundColor: t.hex }, themeColor === t.id && styles.colorCircleActive]}
-              >
-                {themeColor === t.id && <Ionicons name="checkmark" size={14} color="#fff" />}
-              </Pressable>
-            ))}
-            {THEMES.map(t => (
-              <Text key={`lbl-${t.id}`} style={[styles.colorLabel, { color: themeColor === t.id ? t.hex : Colors.textTertiary }]}>{t.name}</Text>
+                key={t.id}
+                onPress={() => setThemeColor(t.id)}
+                style={[
+                  styles.colorCircle,
+                  { backgroundColor: t.hex },
+                  themeColor === t.id && styles.colorCircleActive
+                ]}
+              />
             ))}
           </View>
+        </Section>
+
+        {/* ── AI SETTINGS ── */}
+        <Section title="AI Engine & Capabilities" icon="hardware-chip-outline">
+          <Pressable 
+            style={[styles.saveBtn, { backgroundColor: theme.primaryDim, borderColor: theme.primary, borderWidth: 1 }]}
+            onPress={() => router.push('/ai-settings')}
+          >
+            <Ionicons name="settings-outline" size={20} color={theme.primary} />
+            <Text style={[styles.saveBtnText, { color: theme.primary }]}>Manage Local AI Models</Text>
+          </Pressable>
+          <Text style={[styles.hint, { marginTop: Spacing.sm }]}>Download new models or switch offline AI engines.</Text>
         </Section>
 
         {/* ── RESTAURANT INFO ── */}
@@ -256,15 +277,24 @@ export default function SettingsScreen() {
           <Text style={styles.hint}>💡 Your restaurant pays Twilio directly. You get amazing AI calling for free!</Text>
         </Section>
 
+        {/* ── FOOD DELIVERY INTEGRATIONS ── */}
+        <Section title="Food Delivery Integrations" icon="fast-food-outline">
+          <Field label="Zomato Restaurant ID" value={form.zomatoId} onChangeText={set('zomatoId')}
+            placeholder="e.g. ZOM-123456" icon="pizza-outline" />
+          <Field label="Swiggy Partner ID" value={form.swiggyId} onChangeText={set('swiggyId')}
+            placeholder="e.g. SWG-987654" icon="bicycle-outline" />
+          <Text style={styles.hint}>💡 Just enter your Partner IDs to automatically sync and track live delivery orders from Swiggy & Zomato!</Text>
+        </Section>
+
         {/* Save */}
         <Pressable
-          style={[styles.saveBtn, Shadows.accent, updateMutation.isPending && { opacity: 0.7 }]}
+          style={[styles.saveBtn, Shadows.accent, { backgroundColor: theme.primary }, updateMutation.isPending && { opacity: 0.7 }]}
           onPress={handleSave}
           disabled={updateMutation.isPending}
         >
           {updateMutation.isPending
-            ? <ActivityIndicator color="#fff" />
-            : <><Ionicons name="checkmark-circle" size={20} color="#fff" /><Text style={styles.saveBtnText}>Save All Changes</Text></>
+            ? <ActivityIndicator color="#000" />
+            : <><Ionicons name="checkmark-circle" size={20} color="#000" /><Text style={[styles.saveBtnText, { color: '#000' }]}>Save All Changes</Text></>
           }
         </Pressable>
 
@@ -272,7 +302,7 @@ export default function SettingsScreen() {
         <Pressable
           style={[styles.saveBtn, { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.surfaceBorder, marginTop: Spacing.xl }]}
           onPress={() => {
-            setAppName(''); // Clears stored name so Setup screen triggers
+            setAppName('');
             router.replace('/setup');
           }}
         >
@@ -280,7 +310,25 @@ export default function SettingsScreen() {
           <Text style={[styles.saveBtnText, { color: Colors.textSecondary }]}>Restart Initial Setup</Text>
         </Pressable>
 
-        <View style={{ height: 40 }} />
+        {/* LOGOUT BUTTON */}
+        <Pressable
+          style={[styles.saveBtn, { backgroundColor: Colors.error + '20', borderWidth: 1, borderColor: Colors.error + '40', marginTop: Spacing.sm }]}
+          onPress={() => {
+            Alert.alert(
+              'Logout',
+              'Are you sure you want to logout?',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Logout', style: 'destructive', onPress: () => router.replace('/login') },
+              ]
+            );
+          }}
+        >
+          <Ionicons name="log-out-outline" size={20} color={Colors.error} />
+          <Text style={[styles.saveBtnText, { color: Colors.error }]}>Logout</Text>
+        </Pressable>
+
+        <View style={{ height: 60 }} />
       </ScrollView>
     </SafeAreaView>
   );

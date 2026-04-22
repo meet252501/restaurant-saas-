@@ -10,6 +10,8 @@ import { trpc, RESTAURANT_ID } from '../lib/trpc';
 import { localAI } from '../lib/LocalAIService';
 import { processIntent } from '../lib/intentEngine';
 import { useRouter } from 'expo-router';
+import { useSaaSStore } from '../lib/saas-store';
+import { useDynamicTheme } from '../lib/useDynamicTheme';
 
 interface Message {
   id: string;
@@ -39,6 +41,8 @@ export default function AIAssistantScreen() {
   const [loading, setLoading] = useState(false);
   const [isLocalMode, setIsLocalMode] = useState(true); // Default to our new fast local mode
   const router = useRouter();
+  const theme = useDynamicTheme();
+  const activeModel = useSaaSStore(s => s.activeModel);
   const scrollRef = useRef<ScrollView>(null);
 
   // Fetch contextual floor data for the Smart Engine
@@ -52,7 +56,7 @@ export default function AIAssistantScreen() {
         role: 'assistant',
         text: data.response,
         timestamp: new Date(),
-        actionLink: data.actionLink,
+        actionLink: (data as any).actionLink,
       };
       setMessages(prev => [...prev, aiMsg]);
       setLoading(false);
@@ -94,8 +98,12 @@ export default function AIAssistantScreen() {
         setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
       }, 500); // Small fake delay for realistic "thinking" feel
     } else {
-      chatMutation.mutate({ restaurantId: RESTAURANT_ID, message: text.trim() });
+      chatMutation.mutate({ restaurantId: RESTAURANT_ID, message: text.trim(), model: activeModel });
     }
+  };
+
+  const MessageBubbleWrapper = ({ message }: { message: Message }) => {
+    return <MessageBubble message={message} theme={theme} />;
   };
 
   return (
@@ -114,13 +122,13 @@ export default function AIAssistantScreen() {
           onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
         >
           {messages.map(msg => (
-            <MessageBubble key={msg.id} message={msg} />
+            <MessageBubbleWrapper key={msg.id} message={msg} />
           ))}
 
           {loading && (
             <View style={styles.thinkingBubble}>
-              <ActivityIndicator size="small" color={Colors.ai} />
-              <Text style={styles.thinkingText}>Analyzing live data...</Text>
+              <ActivityIndicator size="small" color={theme.primary} />
+              <Text style={[styles.thinkingText, { color: theme.primary }]}>Analyzing live data...</Text>
             </View>
           )}
         </ScrollView>
@@ -129,8 +137,8 @@ export default function AIAssistantScreen() {
         {messages.length <= 2 && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRow} style={{ flexGrow: 0 }}>
             {QUICK_QUESTIONS.map(q => (
-              <Pressable key={q} style={styles.quickChip} onPress={() => sendMessage(q)}>
-                <Text style={styles.quickChipText}>{q}</Text>
+              <Pressable key={q} style={[styles.quickChip, { backgroundColor: theme.primaryDim, borderColor: theme.primary + '40' }]} onPress={() => sendMessage(q)}>
+                <Text style={[styles.quickChipText, { color: theme.primary }]}>{q}</Text>
               </Pressable>
             ))}
           </ScrollView>
@@ -139,16 +147,16 @@ export default function AIAssistantScreen() {
         {/* RAG & Mode Indicator */}
         <View style={styles.ragBadge}>
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <View style={[styles.ragDot, isLocalMode && { backgroundColor: Colors.ai }]} />
+            <View style={[styles.ragDot, isLocalMode && { backgroundColor: theme.primary }]} />
             <Text style={styles.ragText}>
-              {isLocalMode ? 'Offline Mode · On-Device Inference' : 'Cloud Mode · Connected to Gemini'}
+              {isLocalMode ? 'Offline Mode · On-Device Inference' : 'Cloud Mode · Connected to Server'}
             </Text>
           </View>
           <TouchableOpacity 
             onPress={() => setIsLocalMode(!isLocalMode)}
-            style={{ backgroundColor: isLocalMode ? Colors.aiDim : '#f3f4f6', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}
+            style={{ backgroundColor: isLocalMode ? theme.primaryDim : '#f3f4f6', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}
           >
-            <Text style={{ fontSize: 10, fontWeight: '700', color: isLocalMode ? Colors.ai : Colors.textSecondary }}>
+            <Text style={{ fontSize: 10, fontWeight: '700', color: isLocalMode ? theme.primary : Colors.textSecondary }}>
               {isLocalMode ? 'SWITCH TO CLOUD' : 'GO OFFLINE'}
             </Text>
           </TouchableOpacity>
@@ -168,11 +176,11 @@ export default function AIAssistantScreen() {
             onSubmitEditing={() => sendMessage(input)}
           />
           <Pressable
-            style={[styles.sendBtn, (!input.trim() || loading) && styles.sendBtnDisabled]}
+            style={[styles.sendBtn, { backgroundColor: theme.primary }, (!input.trim() || loading) && styles.sendBtnDisabled]}
             onPress={() => sendMessage(input)}
             disabled={!input.trim() || loading}
           >
-            <Ionicons name="send" size={18} color="#fff" />
+            <Ionicons name="send" size={18} color="#000" />
           </Pressable>
         </View>
       </KeyboardAvoidingView>
@@ -180,30 +188,49 @@ export default function AIAssistantScreen() {
   );
 }
 
-function MessageBubble({ message }: { message: Message }) {
+import { LinearGradient } from 'expo-linear-gradient';
+
+function MessageBubble({ message, theme }: { message: Message, theme: any }) {
   const isUser = message.role === 'user';
   // Bold markdown-like rendering
   const parts = message.text.split(/\*\*(.*?)\*\*/g);
 
+  const innerText = (
+    <>
+      <Text style={isUser ? styles.userText : styles.aiText}>
+        {parts.map((part, i) =>
+          i % 2 === 1
+            ? <Text key={i} style={{ fontWeight: '700' }}>{part}</Text>
+            : <Text key={i}>{part}</Text>
+        )}
+      </Text>
+      <Text style={styles.timestamp}>
+        {message.timestamp.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+      </Text>
+    </>
+  );
+
   return (
     <View style={[styles.bubble, isUser ? styles.userBubble : styles.aiBubble]}>
       {!isUser && (
-        <View style={styles.aiAvatar}>
+        <View style={[styles.aiAvatar, { backgroundColor: theme.primaryDim, borderColor: theme.primary + '40' }]}>
           <Text style={{ fontSize: 14 }}>🤖</Text>
         </View>
       )}
-      <View style={[styles.bubbleContent, isUser ? styles.userContent : styles.aiContent]}>
-        <Text style={isUser ? styles.userText : styles.aiText}>
-          {parts.map((part, i) =>
-            i % 2 === 1
-              ? <Text key={i} style={{ fontWeight: '700' }}>{part}</Text>
-              : <Text key={i}>{part}</Text>
-          )}
-        </Text>
-        <Text style={styles.timestamp}>
-          {message.timestamp.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-        </Text>
-      </View>
+      {isUser ? (
+        <View style={[styles.bubbleContent, styles.userContent, { backgroundColor: theme.primaryDim }]}>
+          {innerText}
+        </View>
+      ) : (
+        <LinearGradient
+          colors={[Colors.surfaceElevated, Colors.surface]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.bubbleContent, styles.aiContent, Shadows.glass, { borderColor: theme.primaryDim }]}
+        >
+          {innerText}
+        </LinearGradient>
+      )}
     </View>
   );
 }
@@ -224,10 +251,10 @@ const styles = StyleSheet.create({
     maxWidth: '80%', borderRadius: Radius.lg, padding: Spacing.md,
     gap: 6, ...Shadows.sm,
   },
-  userContent: { backgroundColor: Colors.accent, borderBottomRightRadius: 4 },
+  userContent: { borderBottomRightRadius: 4, borderTopRightRadius: Radius.lg },
   aiContent: {
-    backgroundColor: Colors.surface, borderBottomLeftRadius: 4,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    borderBottomLeftRadius: 4, borderTopLeftRadius: Radius.lg,
+    borderWidth: 1,
   },
   userText: { ...Typography.body, color: Colors.textInverse, lineHeight: 22 },
   aiText: { ...Typography.body, color: Colors.textPrimary, lineHeight: 22 },
@@ -248,15 +275,15 @@ const styles = StyleSheet.create({
   ragText: { ...Typography.caption, color: Colors.textTertiary },
   quickRow: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, gap: Spacing.sm },
   quickChip: {
-    backgroundColor: Colors.aiDim, borderRadius: Radius.full,
+    borderRadius: Radius.full,
     paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
-    borderWidth: 1, borderColor: Colors.ai + '40',
+    borderWidth: 1,
   },
-  quickChipText: { ...Typography.bodySmall, color: Colors.ai, fontWeight: '600' },
+  quickChipText: { ...Typography.bodySmall, fontWeight: '600' },
   inputBar: {
     flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.sm,
     padding: Spacing.md, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder,
-    backgroundColor: Colors.surface,
+    backgroundColor: Colors.surfaceGlass,
   },
   textInput: {
     flex: 1, backgroundColor: Colors.surfaceElevated, borderRadius: Radius.lg,

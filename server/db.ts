@@ -1,122 +1,113 @@
-import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
-import { ENV } from "./_core/env";
+import Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import * as schema from '../drizzle/schema';
+import path from 'path';
 
+/**
+ * Returns true when neither DATABASE_URL nor DATABASE_PATH is provided.
+ * All routers should call this instead of `!process.env.DATABASE_URL`
+ * because our SQLite DB uses DATABASE_PATH (not DATABASE_URL).
+ */
+export function isMockMode(): boolean {
+  return !process.env.DATABASE_URL && !process.env.DATABASE_PATH;
+}
+
+const DB_PATH = process.env.DATABASE_PATH
+  ? path.resolve(process.env.DATABASE_PATH)
+  : path.resolve(__dirname, '../tablebook.db');
+
+// Singleton instance
 let _db: ReturnType<typeof drizzle> | null = null;
+let _sqlite: Database.Database | null = null;
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
-export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
+export function getDb() {
+  if (!_db) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      _sqlite = new Database(DB_PATH);
+      // Enable WAL mode for better concurrent read performance
+      _sqlite.pragma('journal_mode = WAL');
+      _sqlite.pragma('foreign_keys = ON');
+      _db = drizzle(_sqlite, { schema });
+      console.log(`[DB] Connected to SQLite at ${DB_PATH}`);
     } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
+      console.warn('[DB] Failed to open SQLite:', error);
       _db = null;
     }
   }
   return _db;
 }
 
-export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) {
-    throw new Error("User openId is required for upsert");
-  }
-
-  const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot upsert user: database not available");
-    return;
-  }
-
-  try {
-    const values: InsertUser = {
-      openId: user.openId,
-    };
-    const updateSet: Record<string, unknown> = {};
-
-    const textFields = ["name", "email", "loginMethod"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
-      const value = user[field];
-      if (value === undefined) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
-    };
-
-    textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
-    }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = "owner";
-      updateSet.role = "owner";
-    }
-
-    if (!values.lastSignedIn) {
-      values.lastSignedIn = new Date();
-    }
-
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = new Date();
-    }
-
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
-    });
-  } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
-    throw error;
-  }
-}
-
-export async function getUserByOpenId(openId: string) {
-  const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
-    return undefined;
-  }
-
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-
-  return result.length > 0 ? result[0] : undefined;
-}
-
-// TODO: add feature queries here as your schema grows.
-
-// Lazy Drizzle instance — safe to import even without DATABASE_URL
-let _eagerDb: ReturnType<typeof drizzle> | null = null;
-
-function getEagerDb(): ReturnType<typeof drizzle> | null {
-  if (!_eagerDb && process.env.DATABASE_URL) {
-    try {
-      _eagerDb = drizzle(process.env.DATABASE_URL);
-    } catch (e) {
-      console.warn("[DB] Failed to initialize eager DB:", e);
-      return null;
-    }
-  }
-  return _eagerDb;
-}
-
-// Proxy db - looks like a real drizzle instance but defers connection
-export const db = new Proxy({} as ReturnType<typeof drizzle>, {
+// Proxy that falls back gracefully when DB is not available
+export const db = new Proxy({} as ReturnType<typeof drizzle<typeof schema>>, {
   get(_target, prop) {
-    const eagerDb = getEagerDb();
-    if (!eagerDb) {
-      // Return a dummy function that warns and throws so try/catch blocks fall back to mock data
-      return (...args: any[]) => {
-        console.warn(`[DB] Database operation "${String(prop)}" called but DATABASE_URL is missing.`);
-        throw new Error(`Database connection not available for ${String(prop)}`);
+    const instance = getDb();
+    if (!instance) {
+      return (..._args: any[]) => {
+        console.warn(`[DB] Operation "${String(prop)}" called but DB not available. Using mock fallback.`);
+        throw new Error(`DB_UNAVAILABLE:${String(prop)}`);
       };
     }
-    return eagerDb[prop as keyof ReturnType<typeof drizzle>];
-  }
+    return (instance as any)[prop];
+  },
 });
+
+export function closeDb() {
+  if (_sqlite) {
+    _sqlite.close();
+    _sqlite = null;
+    _db = null;
+    console.log('[DB] Connection closed');
+  }
+}
+
+// ── Helpers used by sdk.ts & oauth.ts ─────────────────────────────────────────
+
+import { eq } from 'drizzle-orm';
+import { users } from '../drizzle/schema';
+
+/**
+ * Find a user by their OAuth openId.
+ * Returns null if DB is unavailable or user not found.
+ */
+export async function getUserByOpenId(openId: string) {
+  const instance = getDb();
+  if (!instance) return null;
+  const result = await instance.select().from(users).where(eq(users.openId, openId)).limit(1);
+  return result[0] ?? null;
+}
+
+/**
+ * Insert or update a user record. Merges only provided fields.
+ */
+export async function upsertUser(data: {
+  openId: string;
+  name?: string | null;
+  email?: string | null;
+  loginMethod?: string | null;
+  lastSignedIn?: Date;
+  restaurantId?: string | null;
+}) {
+  const instance = getDb();
+  if (!instance) return;
+  const now = new Date().toISOString();
+  await (instance as any)
+    .insert(users)
+    .values({
+      openId: data.openId,
+      name: data.name ?? null,
+      email: data.email ?? null,
+      loginMethod: data.loginMethod ?? null,
+      lastSignedIn: data.lastSignedIn?.toISOString() ?? now,
+      createdAt: now,
+    })
+    .onConflictDoUpdate({
+      target: users.openId,
+      set: {
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.email !== undefined && { email: data.email }),
+        ...(data.loginMethod !== undefined && { loginMethod: data.loginMethod }),
+        ...(data.lastSignedIn && { lastSignedIn: data.lastSignedIn.toISOString() }),
+      },
+    });
+}
+

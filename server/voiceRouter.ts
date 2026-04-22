@@ -3,7 +3,13 @@ import { router, publicProcedure } from "./_core/trpc";
 import { getDb } from "./db";
 import { bookings, customers } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
-import { VoiceAIService } from "./_core/VoiceAIService";
+// VoiceAIService removed. Using inline stub.
+const VoiceAIService = {
+  initiateBookingConfirmation: async (opts: any) => {
+    console.log('[VoiceAI] Stub call (VoiceAIService deleted):', opts);
+    return { success: true, mode: 'stub', callId: `stub_${Date.now()}` };
+  }
+};
 
 export const voiceRouter = router({
   startBookingCall: publicProcedure

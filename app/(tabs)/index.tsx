@@ -1,599 +1,463 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  StyleSheet,
-  Pressable,
-  RefreshControl,
-  SafeAreaView,
-  TouchableOpacity,
-} from 'react-native';
+import React, { useMemo } from 'react';
+import { View, Text, ScrollView, StyleSheet, SafeAreaView, Pressable, useWindowDimensions, Animated } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { trpc, RESTAURANT_ID } from '../../lib/trpc';
-import { useSaaSStore } from '../../lib/saas-store';
-import { StatCard } from '../../components/StatCard';
-import { AIInsightCard } from '../../components/AIInsightCard';
-import { Colors, Spacing, Typography, Radius, Shadows } from '../../lib/theme';
-import { RESTAURANT } from '../../lib/restaurant';
-import { PinLock } from '../../components/PinLock';
-import { KOTPreview } from '../../components/KOTPreview';
-
-const AI_INSIGHTS = [
-  "🍏 Green Apple is priced ₹200–₹400/person. Keep tables turning efficiently during lunch (11AM–3:30PM).",
-  "Peak dinner hour is 7–9PM. Consider allocating extra floor staff from 6:30PM onwards. 🔥",
-  "No-show rate is low this week (5%). Your SMS confirmations via Twilio are working well! 📲",
-  "Sector 16 foot traffic peaks after office hours. Consider promoting 6:30PM early-dinner slots. ⏰",
-  "Repeat customer rate is improving! Consider a VIP loyalty card for guests with 5+ visits. ⭐",
-  "All-you-can-eat service: watch for extended table occupancy. Aim for ≤90 min/turn at peak times.",
-];
+import { Colors } from '../../lib/theme';
+import { useStaggeredFadeIn, useFadeIn, usePulse } from '../../lib/animations';
+import { QuickAccessButton } from '../../components/QuickAccessMenu';
 
 export default function DashboardScreen() {
+  const { width } = useWindowDimensions();
+  const isDesktop = width > 800;
   const router = useRouter();
-  const trpcUtils = trpc.useUtils();
-  const appName = useSaaSStore(s => s.appName);
 
-  const { data: metrics, refetch, isRefetching } = trpc.analytics.getMetrics.useQuery({ date: new Date().toISOString().split('T')[0] });
-  const [insightIdx] = useState(() => Math.floor(Math.random() * AI_INSIGHTS.length));
-  const [isLocked, setIsLocked] = useState(false);
-  const [lockTarget, setLockTarget] = useState<string | null>(null);
-  const [manualReportText, setManualReportText] = useState("");
-  const [isManualVisible, setIsManualVisible] = useState(false);
-  const [selectedOrderForKOT, setSelectedOrderForKOT] = useState<any>(null);
-  const [isKOTVisible, setIsKOTVisible] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
+  // ── Real Data Queries ──────────────────────────────
+  const { data: metrics } = trpc.analytics.todayKPIs.useQuery({ restaurantId: RESTAURANT_ID });
+  const { data: trends } = trpc.analytics.thirtyDayTrends.useQuery({ restaurantId: RESTAURANT_ID });
+  const { data: revenueData } = trpc.analytics.revenueAnalysis.useQuery({ restaurantId: RESTAURANT_ID, days: 7 });
+  const { data: deliveryData } = trpc.delivery.today.useQuery();
+  const { data: bookingsList } = trpc.booking.listByDate.useQuery({
+    restaurantId: RESTAURANT_ID,
+    date: new Date().toISOString().split('T')[0],
+  });
+
   const today = new Date().toISOString().split('T')[0];
+  const cardWidth = isDesktop ? undefined : (width - 48) / 2; // exact 2-col width
 
-  // Mock data for offline/standalone mode
-  const user = { name: 'Admin', role: 'manager' };
-  const isManagerOrOwner = true;
-  
-  const stats = {
-    totalRevenue: 45280,
-    occupancyRate: 88,
-    noShowRate: 2,
-    totalBookings: 32,
-    totalGuests: 124,
-    sources: { online: 18, walkin: 10, phone: 4 }
+  // ── Computed KPIs ──────────────────────────────────
+  const s = metrics || {
+    totalRevenue: 0, occupancyRate: 0, noShowRate: 0,
+    totalBookings: 0, totalGuests: 0, peakHour: 'N/A',
+    busyTables: 0, availableTables: 0,
   };
 
-  const deliveryData: any = { summary: { revenue: 8450 }, orders: [] };
-  const reviewsData: any = { rating: '4.8', reviews: [{ text: "Amazing food and great service!", authorName: "John Doe" }] };
-  const restaurant = { name: "Green Apple", phone: "919662653440" };
+  // ── Revenue Chart Data (last 7 days) ────────────────
+  const chartData = useMemo(() => {
+    if (!trends || trends.length === 0) {
+      return Array.from({ length: 7 }, (_, i) => ({
+        day: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i],
+        revenue: [4200, 3800, 5100, 4700, 6200, 8500, 7300][i],
+        bookings: [12, 10, 15, 13, 18, 24, 20][i],
+      }));
+    }
+    return trends.slice(-7).map((d: any) => ({
+      day: new Date(d.date).toLocaleDateString('en-IN', { weekday: 'short' }),
+      revenue: parseInt(d.revenue || '0'),
+      bookings: d.bookings || 0,
+    }));
+  }, [trends]);
 
-  const logoutMutation = { mutate: () => router.replace('/login'), isPending: false };
-  const sendReport = { mutate: () => alert('✅ Daily Summary sent (Simulated)!'), isPending: false };
+  const maxRevenue = Math.max(...chartData.map(d => d.revenue), 1);
+  const maxBookings = Math.max(...chartData.map(d => d.bookings), 1);
+
+  // ── Recent Activity ────────────────────────────────
+  const recentActivity = useMemo(() => {
+    if (!bookingsList || bookingsList.length === 0) {
+      return [
+        { id: 'TBL-12', action: 'Seated • 4 pax', time: '2m', color: Colors.accent },
+        { id: 'ONL-88', action: 'Confirmed • ₹1,400', time: '12m', color: Colors.available },
+        { id: 'TBL-04', action: 'Completed • ₹3,200', time: '18m', color: Colors.textTertiary },
+        { id: 'TBL-09', action: 'No Show', time: '21m', color: Colors.error },
+      ];
+    }
+    const statusColors: Record<string, string> = {
+      confirmed: Colors.accent, seated: Colors.available,
+      done: Colors.textTertiary, no_show: Colors.error, cancelled: '#ef4444',
+    };
+    return bookingsList.slice(0, 5).map((b: any) => {
+      const mins = Math.floor((Date.now() - new Date(b.createdAt || Date.now()).getTime()) / 60000);
+      return {
+        id: `TBL-${b.tableId?.slice(-2) || '00'}`,
+        action: `${b.status === 'done' ? 'Done' : b.status === 'seated' ? 'Seated' : 'Confirmed'} • ${b.partySize} pax`,
+        time: mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h`,
+        color: statusColors[b.status] || Colors.textTertiary,
+      };
+    });
+  }, [bookingsList]);
+
+  // ── Delivery Stats ─────────────────────────────────
+  const deliveryStats = useMemo(() => {
+    if (!deliveryData) return { total: 0, revenue: 0 };
+    const orders = (deliveryData as any)?.orders || deliveryData || [];
+    if (!Array.isArray(orders)) return { total: 0, revenue: 0 };
+    return {
+      total: orders.length,
+      revenue: orders.reduce((sum: number, o: any) => sum + (o.total || 0), 0),
+    };
+  }, [deliveryData]);
 
 
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await refetch();
-    setRefreshing(false);
-  };
+  // ── Revenue Sources ────────────────────────────────
+  const revSources = revenueData?.revenueBySource && revenueData.revenueBySource.length > 0
+    ? revenueData.revenueBySource.map((src: any) => ({
+        source: src.source, revenue: Number(src.revenue), pct: parseFloat(src.percentage || '0'),
+      }))
+    : [
+        { source: 'Cash', revenue: 22000, pct: 54 },
+        { source: 'Online', revenue: 12000, pct: 29 },
+        { source: 'Delivery', revenue: 7000, pct: 17 },
+      ];
+  const srcColors = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444'];
 
-  const handleLogout = () => {
-    logoutMutation.mutate();
-  };
+  // ── Animations ─────────────────────────────────────
+  const kpiAnim = useStaggeredFadeIn(4, 100, 500);
+  const chartAnim = useFadeIn(600, 300);
+  const activityAnim = useFadeIn(600, 500);
+  const bottomAnim = useFadeIn(600, 600);
+  const pulse = usePulse(1800);
 
-  const handleSecuredPress = (target: string) => {
-    router.push(target as any);
-  };
-
-  const s = stats ?? {
-    todayRevenue: 12500,
-    occupancyRate: 85,
-    noShowRate: 5,
-    totalTodayBookings: 24,
-    sources: { online: 15, walkin: 6, phone: 3 },
-    totalCustomers: 120,
-    repeatCustomers: 45,
-    totalBookingsAllTime: 1250,
-  };
-
-  const totalSources = ((s as any).sources?.online || 0) + ((s as any).sources?.walkin || 0) + ((s as any).sources?.phone || 0);
+  const renderKpiCard = (label: string, value: string, icon: string, color: string, index: number) => (
+    <Animated.View key={label} style={[
+      styles.kpiCard,
+      isDesktop ? { flex: 1 } : { width: cardWidth },
+      { opacity: kpiAnim.opacities[index], transform: [{ translateY: kpiAnim.translates[index] }] },
+    ]}>
+      <View style={{ padding: 14 }}>
+        <View style={styles.kpiTop}>
+          <Text style={styles.kpiLabel}>{label}</Text>
+          <View style={[styles.kpiIcon, { backgroundColor: color + '18' }]}>
+            <Ionicons name={icon as any} size={14} color={color} />
+          </View>
+        </View>
+        <Text style={styles.kpiValue}>{value}</Text>
+      </View>
+    </Animated.View>
+  );
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.content}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={Colors.accent}
-            colors={[Colors.accent]}
-          />
-        }
-        showsVerticalScrollIndicator={false}
-      >
+      <View style={styles.main}>
         {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingHorizontal: isDesktop ? 32 : 16, paddingVertical: isDesktop ? 20 : 12 }]}>
           <View>
-            <Text style={styles.greeting}>{RESTAURANT.emoji} {appName}</Text>
-            <Text style={styles.date}>{formatDate(today)} · Good {getGreeting()} 👋</Text>
-            {user && <Text style={{ color: Colors.textTertiary, fontSize: 12, marginTop: 4 }}>Logged in as {(user as any).name} ({(user as any).role})</Text>}
+            <Text style={[styles.pageTitle, !isDesktop && { fontSize: 20 }]}>Overview</Text>
+            <Text style={styles.pageSub}>{formatDate(today)}</Text>
           </View>
-          <View style={styles.headerButtons}>
-            <Pressable style={styles.iconBtn} onPress={handleLogout}>
-              <Ionicons name="log-out-outline" size={22} color={Colors.error} />
-            </Pressable>
-            <Pressable style={styles.iconBtn} onPress={() => router.push('/waitlist')}>
-              <Ionicons name="time-outline" size={22} color={Colors.textSecondary} />
-            </Pressable>
-            <Pressable style={styles.iconBtn} onPress={() => handleSecuredPress('/settings')}>
-              <Ionicons name="settings-outline" size={22} color={Colors.textSecondary} />
-            </Pressable>
-            <Pressable style={styles.iconBtn} onPress={() => handleSecuredPress('/ai-assistant')}>
-              <Ionicons name="sparkles-outline" size={22} color={Colors.ai} />
-            </Pressable>
-          </View>
+          <QuickAccessButton />
         </View>
 
-        {/* AI Insight */}
-        {isManagerOrOwner && (
-          <AIInsightCard
-            insight={AI_INSIGHTS[insightIdx]}
-            onPress={() => router.push('/ai-assistant')}
-          />
-        )}
 
-        {/* Primary Stats Row */}
-        <View style={styles.row}>
-          {isManagerOrOwner ? (
-            <StatCard
-              icon="💰"
-              label="Today's Revenue"
-              value={`₹${((s as any).totalRevenue || 0).toLocaleString('en-IN')}`}
-              accent
-              flex={1}
-            />
-          ) : (
-            <>
-              <ToolButton
-                icon="restaurant"
-                label="Kitchen KDS"
-                color="#F59E0B"
-                onPress={() => router.push('/kds')}
-              />
-              <ToolButton
-                icon="share-social"
-                label="Daily Report"
-                color="#0EA5E9"
-                onPress={() => {
-                  sendReport.mutate({ restaurantId: RESTAURANT_ID });
-                }}
-              />
-            </>
-          )}
-          <StatCard
-            icon="📊"
-            label="Occupancy"
-            value={`${s.occupancyRate}%`}
-            flex={1}
-          />
-        </View>
 
-        {/* Secondary Stats Row */}
-        <View style={styles.row}>
-          <StatCard
-            icon="📅"
-            label="Today's Bookings"
-            value={(s as any).totalBookings || 0}
-            flex={1}
-          />
-          <StatCard
-            icon="⚠️"
-            label="No-Show Rate"
-            value={`${s.noShowRate}%`}
-            flex={1}
-          />
-        </View>
-
-        {/* Commercial Operations Section */}
-        {isManagerOrOwner && (
-          <View style={appStyles.commercialRow}>
-            <Pressable 
-              style={({ pressed }) => [appStyles.commBtn, { backgroundColor: Colors.accentDim, borderColor: Colors.accent + '50', borderWidth: 1 }, pressed && { opacity: 0.7 }]}
-              onPress={() => router.push('/reviews')}
-            >
-              <Ionicons name="logo-google" size={18} color={Colors.accent} />
-              <Text style={[appStyles.commBtnText, { color: Colors.accent }]}>Reviews ({reviewsData?.rating || '4.6'})</Text>
-            </Pressable>
-            <Pressable 
-              style={({ pressed }) => [appStyles.commBtn, { backgroundColor: '#111827' }, pressed && { opacity: 0.7 }]}
-              onPress={() => handleSecuredPress('/menu-editor')}
-            >
-              <Ionicons name="book-outline" size={18} color="white" />
-              <Text style={[appStyles.commBtnText, { color: 'white' }]}>Digital Menu</Text>
-            </Pressable>
-          </View>
-        )}
-
-        {/* Delivery Income Stat */}
-        <View style={styles.row}>
-          <StatCard
-            icon="🛵"
-            label="Online Orders"
-            value={`₹${deliveryData?.summary.revenue.toLocaleString('en-IN') || '0'}`}
-            flex={1}
-          />
-          <StatCard
-            icon="👥"
-            label="Total Guests"
-            value={(s as any).totalGuests || 0}
-            flex={1}
-          />
-        </View>
-        <View style={[styles.card, Shadows.sm]}>
-          <Text style={styles.cardTitle}>Booking Sources</Text>
-          <View style={styles.sourcesBar}>
-            {totalSources > 0 && (
-              <>
-                <View
-                  style={[styles.sourceChunk, {
-                    flex: ((s as any).sources?.online || 0),
-                    backgroundColor: Colors.confirmed,
-                    borderTopLeftRadius: 4,
-                    borderBottomLeftRadius: 4,
-                  }]}
-                />
-                <View
-                  style={[styles.sourceChunk, {
-                    flex: ((s as any).sources?.walkin || 0),
-                    backgroundColor: Colors.accent,
-                  }]}
-                />
-                <View
-                  style={[styles.sourceChunk, {
-                    flex: ((s as any).sources?.phone || 0),
-                    backgroundColor: Colors.phone,
-                    borderTopRightRadius: 4,
-                    borderBottomRightRadius: 4,
-                  }]}
-                />
-              </>
-            )}
-          </View>
-          <View style={styles.sourcesLegend}>
-            <LegendItem color={Colors.confirmed} label="Online" value={((s as any).sources?.online || 0)} />
-            <LegendItem color={Colors.accent}    label="Walk-in" value={((s as any).sources?.walkin || 0)} />
-            <LegendItem color={Colors.phone}     label="Phone"   value={((s as any).sources?.phone || 0)} />
-          </View>
-        </View>
-
-        {/* Business Toolkit */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Business Toolkit 🧰</Text>
-        </View>
-        <View style={styles.row}>
-          <TouchableOpacity 
-            style={[styles.smallCard, { flex: 1 }]}
-            onPress={() => router.push('/tools/qrcodes')}
-          >
-            <View style={[styles.iconCircle, { backgroundColor: '#eef2ff' }]}>
-              <Ionicons name="qr-code" size={20} color="#4f46e5" />
-            </View>
-            <Text style={styles.smallCardTitle}>Table QRs</Text>
-            <Text style={styles.smallCardSub}>Generate codes</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={[styles.smallCard, { flex: 1 }]}
-            onPress={() => handleSecuredPress('daily-report')}
-          >
-            <View style={[styles.iconCircle, { backgroundColor: '#ecfdf5' }]}>
-              <Ionicons name="stats-chart" size={20} color="#10b981" />
-            </View>
-            <Text style={styles.smallCardTitle}>Daily Report</Text>
-            <Text style={styles.smallCardSub}>WhatsApp Owner</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Live Activity Bento Section */}
-        <View style={appStyles.liveActivityHeader}>
-          <Text style={styles.cardTitle}>Live Activity</Text>
-          <View style={appStyles.liveBadge}>
-            <View style={appStyles.liveDot} />
-            <Text style={appStyles.liveBadgeText}>LIVE</Text>
-          </View>
-        </View>
-
-        <View style={styles.row}>
-          {/* Latest Order Widget */}
-          <Pressable
-            style={[styles.card, { flex: 1, padding: 16, gap: 6 }]}
-            onPress={() => router.push('/delivery')}
-          >
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <View style={{ backgroundColor: 'rgba(220,38,38,0.15)', padding: 8, borderRadius: 10 }}>
-                <MaterialCommunityIcons name="pizza" size={16} color="#f87171" />
-              </View>
-              <Text style={{ fontSize: 10, fontWeight: '800', color: Colors.textTertiary, letterSpacing: 1 }}>ORDERS</Text>
-            </View>
-            {deliveryData?.orders[0] ? (
-              <View>
-                <Text style={{ color: Colors.textPrimary, fontWeight: '700', fontSize: 14 }} numberOfLines={1}>{deliveryData.orders[0].customerName}</Text>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 4 }}>
-                  <Text style={{ color: Colors.accent, fontWeight: '800', fontSize: 20 }}>₹{deliveryData.orders[0].total}</Text>
-                  <TouchableOpacity onPress={() => { setSelectedOrderForKOT(deliveryData.orders[0]); setIsKOTVisible(true); }}>
-                    <Ionicons name="reader-outline" size={18} color={Colors.accent} />
-                  </TouchableOpacity>
-                </View>
-                <Text style={{ color: Colors.textTertiary, fontSize: 10, marginTop: 2 }}>{deliveryData.orders[0].platform.toUpperCase()} · JUST NOW</Text>
-              </View>
-            ) : (
-              <Text style={{ color: Colors.textTertiary, fontStyle: 'italic', fontSize: 12, paddingVertical: 16 }}>No active orders</Text>
-            )}
-          </Pressable>
-
-          {/* Latest Review Widget */}
-          <Pressable
-            style={[styles.card, { flex: 1, padding: 16, gap: 6 }]}
-            onPress={() => router.push('/reviews')}
-          >
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <View style={{ backgroundColor: Colors.accentDim, padding: 8, borderRadius: 10 }}>
-                <Ionicons name="logo-google" size={14} color={Colors.accent} />
-              </View>
-              <Text style={{ fontSize: 10, fontWeight: '800', color: Colors.textTertiary, letterSpacing: 1 }}>REVIEWS</Text>
-            </View>
-            {reviewsData?.reviews[0] ? (
-              <>
-                <View style={{ flexDirection: 'row', gap: 1 }}>
-                  {[1,2,3,4,5].map(s => (
-                    <Ionicons key={s} name="star" size={10} color={s <= reviewsData.reviews[0].rating ? '#facc15' : Colors.surfaceBorder} />
-                  ))}
-                </View>
-                <Text style={{ color: Colors.textPrimary, fontWeight: '600', fontSize: 12 }} numberOfLines={2}>&quot;{reviewsData.reviews[0].text}&quot;</Text>
-                <Text style={{ color: Colors.textTertiary, fontSize: 10, marginTop: 2 }}>BY {reviewsData.reviews[0].authorName.toUpperCase()}</Text>
-              </>
-            ) : (
-              <Text style={{ color: Colors.textTertiary, fontStyle: 'italic', fontSize: 12, paddingVertical: 16 }}>No new reviews</Text>
-            )}
-          </Pressable>
-        </View>
-
-        {/* CTA */}
-        <Pressable
-          style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed, Shadows.accent]}
-          onPress={() => router.push('/new-booking')}
+        {/* Scrollable Content */}
+        <ScrollView
+          style={{ flex: 1 }}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{
+            padding: isDesktop ? 24 : 16,
+            gap: isDesktop ? 20 : 14,
+            paddingBottom: isDesktop ? 32 : 100,
+          }}
         >
-          <Ionicons name="add-circle-outline" size={22} color={Colors.textInverse} />
-          <Text style={styles.ctaText}>New Booking</Text>
-        </Pressable>
-
-
-
-        {/* Manual Report Modal */}
-        {isManualVisible && (
-          <View style={appStyles.manualModalOverlay}>
-            <View style={appStyles.manualModalContent}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                <Ionicons name="logo-whatsapp" size={24} color="#25d366" />
-                <Text style={{ fontSize: 18, fontWeight: 'bold', color: Colors.textPrimary, marginLeft: 8 }}>Manual Report</Text>
-              </View>
-              <Text style={{ color: Colors.textSecondary, marginBottom: 12, fontSize: 13, lineHeight: 18 }}>
-                MSG91 API is in &quot;Manual Mode&quot;. Copy the summary below and send it to the owner.
-              </Text>
-              <View style={{ backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 16, padding: 12, marginBottom: 20 }}>
-                <Text style={{ fontSize: 12, fontFamily: 'monospace', color: '#1f2937' }}>{manualReportText}</Text>
-              </View>
-              <TouchableOpacity 
-                style={{ backgroundColor: Colors.accent, paddingVertical: 14, borderRadius: 16, alignItems: 'center', marginBottom: 10 }}
-                onPress={() => {
-                  alert("Report copied to clipboard!"); 
-                  setIsManualVisible(false);
-                }}
-              >
-                <Text style={{ color: Colors.textInverse, fontWeight: '700' }}>Copy Report</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={{ paddingVertical: 8, alignItems: 'center' }}
-                onPress={() => setIsManualVisible(false)}
-              >
-                <Text style={{ color: Colors.textTertiary, fontWeight: '500' }}>Close</Text>
-              </TouchableOpacity>
-            </View>
+          {/* ── KPI Cards ── */}
+          <View style={[styles.kpiRow, !isDesktop && { flexWrap: 'wrap' }]}>
+            {renderKpiCard('Revenue', `₹${Number(s.totalRevenue || 0).toLocaleString('en-IN')}`, 'wallet-outline', Colors.available, 0)}
+            {renderKpiCard('Bookings', `${s.totalBookings || 0}`, 'calendar-outline', Colors.accent, 1)}
+            {renderKpiCard('Covers', `${s.totalGuests || 0}`, 'people-outline', Colors.accentPurple, 2)}
+            {renderKpiCard('Delivery', `${deliveryStats.total}`, 'bicycle-outline', '#f97316', 3)}
           </View>
-        )}
 
-        {/* KOT Preview Modal */}
-        {selectedOrderForKOT && (
-          <KOTPreview
-            visible={isKOTVisible}
-            onClose={() => setIsKOTVisible(false)}
-            order={{
-              id: selectedOrderForKOT.id,
-              table: selectedOrderForKOT.table || "Online",
-              items: Array.isArray(selectedOrderForKOT.items) 
-                ? selectedOrderForKOT.items.map((i: any) => ({ name: i.name, quantity: i.quantity || i.qty }))
-                : [],
-              timestamp: selectedOrderForKOT.placedAt || new Date().toISOString(),
-            }}
-          />
-        )}
+          {/* ── Quick Actions Row ── */}
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            {/* Walk-in CTA */}
+            <Pressable
+              style={styles.walkinBtn}
+              onPress={() => router.push('/walkin')}
+            >
+              <View style={styles.walkinIconBox}>
+                <Ionicons name="walk" size={22} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.walkinTitle}>Seat Walk-in</Text>
+                <Text style={styles.walkinSub}>Instant guest entry · No reservation needed</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#fff" style={{ opacity: 0.7 }} />
+            </Pressable>
 
-        <View style={{ height: 100 }} />
-      </ScrollView>
+            {/* New Booking CTA */}
+            <Pressable
+              style={styles.newBookingBtn}
+              onPress={() => router.push('/new-booking')}
+            >
+              <Ionicons name="add-circle-outline" size={20} color={Colors.accent} />
+              <Text style={styles.newBookingText}>New Booking</Text>
+            </Pressable>
+
+            {/* Menu Editor CTA */}
+            <Pressable
+              style={styles.newBookingBtn}
+              onPress={() => router.push('/menu-editor')}
+            >
+              <Ionicons name="restaurant-outline" size={20} color={Colors.accent} />
+              <Text style={styles.newBookingText}>Edit Menu</Text>
+            </Pressable>
+          </View>
+
+          {/* ── Chart + Activity Row ── */}
+          <View style={[styles.row, !isDesktop && { flexDirection: 'column' }]}>
+            {/* 7-Day Revenue Chart */}
+            <Animated.View style={[styles.card, isDesktop ? { flex: 2 } : {}, { opacity: chartAnim.opacity, transform: [{ translateY: chartAnim.translateY }] }]}>
+              <View style={styles.cardHead}>
+                <View>
+                  <Text style={styles.cardTitle}>7-Day Revenue</Text>
+                  <Text style={styles.cardSub}>₹{chartData.reduce((a, d) => a + d.revenue, 0).toLocaleString('en-IN')} total</Text>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 12 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.accent }} />
+                    <Text style={{ color: Colors.textTertiary, fontSize: 10 }}>Revenue</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.accentPurple }} />
+                    <Text style={{ color: Colors.textTertiary, fontSize: 10 }}>Bookings</Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Chart */}
+              {(() => {
+                const chartH = isDesktop ? 240 : 180;
+                const labelArea = 28; // space for day labels below bars
+                const barArea = chartH - labelArea;
+                return (
+                  <View style={{ height: chartH, flexDirection: 'row' }}>
+                    {/* Y Axis */}
+                    <View style={{ width: isDesktop ? 50 : 40, justifyContent: 'space-between', paddingBottom: labelArea }}>
+                      <Text style={styles.yTxt}>₹{(maxRevenue / 1000).toFixed(0)}k</Text>
+                      <Text style={styles.yTxt}>₹{(maxRevenue / 2000).toFixed(0)}k</Text>
+                      <Text style={styles.yTxt}>₹0</Text>
+                    </View>
+                    {/* Bars */}
+                    <View style={{ flex: 1, position: 'relative' }}>
+                      {/* Grid lines */}
+                      <View style={[styles.gridLn, { top: 0 }]} />
+                      <View style={[styles.gridLn, { top: barArea / 2 }]} />
+                      <View style={[styles.gridLn, { top: barArea }]} />
+
+                      <View style={{ flex: 1, flexDirection: 'row', alignItems: 'flex-end', paddingBottom: labelArea }}>
+                        {chartData.map((d, i) => {
+                          const revH = Math.max((d.revenue / maxRevenue) * barArea, 4);
+                          const bookH = Math.max((d.bookings / maxBookings) * barArea, 4);
+                          return (
+                            <View key={i} style={{ flex: 1, alignItems: 'center' }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 2 }}>
+                                <LinearGradient
+                                  colors={[Colors.accent, Colors.accent + '60']}
+                                  style={{ width: isDesktop ? 16 : 12, height: revH, borderRadius: 4 }}
+                                />
+                                <LinearGradient
+                                  colors={[Colors.accentPurple, Colors.accentPurple + '50']}
+                                  style={{ width: isDesktop ? 10 : 7, height: bookH, borderRadius: 4, opacity: 0.8 }}
+                                />
+                              </View>
+                              <Text style={{ color: Colors.textTertiary, fontSize: 9, marginTop: 4 }}>{d.day}</Text>
+                              <Text style={{ color: Colors.textSecondary, fontSize: 8, fontWeight: '600' }}>₹{(d.revenue / 1000).toFixed(1)}k</Text>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  </View>
+                );
+              })()}
+            </Animated.View>
+
+            {/* Recent Activity */}
+            <Animated.View style={[styles.card, isDesktop ? { flex: 1 } : {}, { opacity: activityAnim.opacity, transform: [{ translateY: activityAnim.translateY }] }]}>
+              <View style={styles.cardHead}>
+                <Text style={styles.cardTitle}>Activity</Text>
+                <Text style={styles.cardSub}>{recentActivity.length} today</Text>
+              </View>
+              <View style={{ gap: 14 }}>
+                {recentActivity.map((a, i) => (
+                  <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: a.color }}>
+                      <Animated.View style={{ position: 'absolute', width: 8, height: 8, borderRadius: 4, backgroundColor: a.color, opacity: pulse.opacity, transform: [{ scale: pulse.scale }] }} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: Colors.textPrimary, fontSize: 13, fontWeight: '600' }}>{a.id}</Text>
+                      <Text style={{ color: Colors.textTertiary, fontSize: 11 }}>{a.action}</Text>
+                    </View>
+                    <Text style={{ color: Colors.textTertiary, fontSize: 11 }}>{a.time}</Text>
+                  </View>
+                ))}
+              </View>
+              {/* Quick Stats */}
+              <View style={{ flexDirection: 'row', marginTop: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder }}>
+                <View style={{ flex: 1, alignItems: 'center' }}>
+                  <Text style={{ color: Colors.textPrimary, fontSize: 15, fontWeight: '700' }}>{(s as any).peakHour || 'N/A'}</Text>
+                  <Text style={{ color: Colors.textTertiary, fontSize: 9 }}>Peak</Text>
+                </View>
+                <View style={{ width: 1, backgroundColor: Colors.surfaceBorder }} />
+                <View style={{ flex: 1, alignItems: 'center' }}>
+                  <Text style={{ color: Colors.textPrimary, fontSize: 15, fontWeight: '700' }}>{s.busyTables || 0}</Text>
+                  <Text style={{ color: Colors.textTertiary, fontSize: 9 }}>Busy</Text>
+                </View>
+                <View style={{ width: 1, backgroundColor: Colors.surfaceBorder }} />
+                <View style={{ flex: 1, alignItems: 'center' }}>
+                  <Text style={{ color: Colors.textPrimary, fontSize: 15, fontWeight: '700' }}>{s.availableTables || 0}</Text>
+                  <Text style={{ color: Colors.textTertiary, fontSize: 9 }}>Free</Text>
+                </View>
+              </View>
+            </Animated.View>
+          </View>
+
+          {/* ── Revenue Sources + Delivery ── */}
+          <View style={[styles.row, !isDesktop && { flexDirection: 'column' }]}>
+            {/* Revenue by Source */}
+            <Animated.View style={[styles.card, isDesktop ? { flex: 1 } : {}, { opacity: bottomAnim.opacity, transform: [{ translateY: bottomAnim.translateY }] }]}>
+              <Text style={[styles.cardTitle, { marginBottom: 14 }]}>Revenue Sources</Text>
+              <View style={{ gap: 14 }}>
+                {revSources.map((src: any, i: number) => (
+                  <View key={i}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: srcColors[i % srcColors.length] }} />
+                        <Text style={{ color: Colors.textSecondary, fontSize: 13, fontWeight: '500' }}>{src.source}</Text>
+                      </View>
+                      <Text style={{ color: Colors.textTertiary, fontSize: 12 }}>₹{src.revenue.toLocaleString('en-IN')} ({src.pct}%)</Text>
+                    </View>
+                    <View style={styles.progressBg}>
+                      <LinearGradient
+                        colors={[srcColors[i % srcColors.length], srcColors[i % srcColors.length] + '50']}
+                        start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                        style={[styles.progressFill, { width: `${Math.max(src.pct, 5)}%` }]}
+                      />
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </Animated.View>
+
+            {/* Delivery Summary */}
+            <Animated.View style={[styles.card, isDesktop ? { flex: 1 } : {}, { opacity: bottomAnim.opacity, transform: [{ translateY: bottomAnim.translateY }] }]}>
+              <Text style={[styles.cardTitle, { marginBottom: 14 }]}>Delivery & Stats</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                {[
+                  { icon: 'receipt-outline', val: `${deliveryStats.total}`, lbl: 'Orders', clr: '#f97316' },
+                  { icon: 'cash-outline', val: `₹${deliveryStats.revenue.toLocaleString('en-IN')}`, lbl: 'Revenue', clr: '#10b981' },
+                  { icon: 'time-outline', val: `${(s as any).peakHour || '7 PM'}`, lbl: 'Peak Hour', clr: Colors.accent },
+                  { icon: 'pie-chart-outline', val: `${s.occupancyRate}%`, lbl: 'Occupancy', clr: Colors.accentPurple },
+                ].map((st, i) => (
+                  <View key={i} style={styles.miniStat}>
+                    <View style={[styles.miniStatAccent, { backgroundColor: st.clr }]} />
+                    <View style={{ flex: 1, paddingVertical: 12, paddingRight: 12, paddingLeft: 14 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                        <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: st.clr + '18', alignItems: 'center', justifyContent: 'center' }}>
+                          <Ionicons name={st.icon as any} size={15} color={st.clr} />
+                        </View>
+                        <Text style={{ color: Colors.textTertiary, fontSize: 11, fontWeight: '500' }}>{st.lbl}</Text>
+                      </View>
+                      <Text style={{ color: Colors.textPrimary, fontSize: 18, fontWeight: '700', letterSpacing: -0.3 }}>{st.val}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </Animated.View>
+          </View>
+
+        </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }
 
-const appStyles = StyleSheet.create({
-  commercialRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 8,
-  },
-  commBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    borderRadius: 20,
-    borderWidth: 1,
-    gap: 8,
-  },
-  commBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#047857',
-  },
-  liveActivityHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 8,
-    marginBottom: -4,
-  },
-  liveBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fee2e2',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    gap: 4,
-  },
-  liveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#dc2626',
-  },
-  liveBadgeText: {
-    fontSize: 9,
-    fontWeight: '900',
-    color: '#dc2626',
-    letterSpacing: 0.5,
-  },
-  manualModalOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-    zIndex: 1000,
-  },
-  manualModalContent: {
-    backgroundColor: Colors.surface,
-    borderRadius: 32,
-    padding: 24,
-    width: '100%',
-    maxWidth: 400,
-    ...Shadows.md,
-  }
-});
-
-function LegendItem({ color, label, value }: { color: string; label: string; value: number }) {
-  return (
-    <View style={styles.legendItem}>
-      <View style={[styles.legendDot, { backgroundColor: color }]} />
-      <Text style={styles.legendLabel}>{label}</Text>
-      <Text style={styles.legendValue}>{value}</Text>
-    </View>
-  );
-}
-
-function getGreeting() {
-  const h = new Date().getHours();
-  if (h < 12) return 'Morning';
-  if (h < 17) return 'Afternoon';
-  return 'Evening';
-}
-
 function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString('en-IN', {
-    weekday: 'long', day: 'numeric', month: 'long',
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   });
-}
-
-function ToolButton({ icon, label, color, onPress }: { icon: any, label: string, color: string, onPress: () => void }) {
-  return (
-    <TouchableOpacity 
-      onPress={onPress}
-      style={[styles.smallCard, Shadows.md]}
-    >
-      <View style={[styles.iconCircle, { backgroundColor: color + '20' }]}>
-        <Ionicons name={icon} size={20} color={color} />
-      </View>
-      <Text style={styles.smallCardTitle}>{label}</Text>
-    </TouchableOpacity>
-  );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
-  scroll: { flex: 1 },
-  content: { padding: Spacing.lg, gap: Spacing.md },
+  main: { flex: 1 },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: Spacing.xs,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    borderBottomWidth: 1, borderBottomColor: Colors.surfaceBorder,
   },
-  greeting: { ...Typography.heading, color: Colors.textPrimary },
-  date: { ...Typography.bodySmall, color: Colors.textSecondary, marginTop: 2 },
-  headerButtons: { flexDirection: 'row', gap: Spacing.sm },
-  iconBtn: {
-    width: 40, height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.surface,
-    alignItems: 'center', justifyContent: 'center',
+  pageTitle: { color: Colors.textPrimary, fontSize: 24, fontWeight: '700', letterSpacing: -0.5 },
+  pageSub: { color: Colors.textTertiary, fontSize: 12, marginTop: 2 },
+  profileBtn: { width: 36, height: 36, borderRadius: 18, overflow: 'hidden' },
+
+  // KPI Row
+  kpiRow: { flexDirection: 'row', gap: 12 },
+  kpiCard: {
+    backgroundColor: Colors.surface, borderRadius: 14,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    overflow: 'hidden',
+  },
+  kpiTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  kpiLabel: { color: Colors.textTertiary, fontSize: 11, fontWeight: '500' },
+  kpiIcon: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  kpiValue: { color: Colors.textPrimary, fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
+
+  // Cards
+  row: { flexDirection: 'row', gap: 14 },
+  card: {
+    backgroundColor: Colors.surface, borderRadius: 16, padding: 18,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
   },
-  row: { flexDirection: 'row', gap: Spacing.md },
-  card: {
-    backgroundColor: Colors.surface,
-    borderRadius: Radius.lg,
-    padding: Spacing.lg,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-    gap: Spacing.md,
+  cardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 },
+  cardTitle: { color: Colors.textPrimary, fontSize: 15, fontWeight: '600' },
+  cardSub: { color: Colors.textTertiary, fontSize: 11, marginTop: 2 },
+
+  // Chart
+  yTxt: { color: Colors.textTertiary, fontSize: 9, textAlign: 'right' },
+  gridLn: { position: 'absolute' as any, left: 0, right: 0, height: 1, backgroundColor: Colors.surfaceBorder },
+
+  // Revenue Sources
+  progressBg: { height: 6, backgroundColor: Colors.surfaceBorder, borderRadius: 3, overflow: 'hidden' },
+  progressFill: { height: 6, borderRadius: 3 },
+
+  // Delivery mini stat
+  miniStat: {
+    backgroundColor: Colors.background, borderRadius: 12,
+    flexDirection: 'row' as const, overflow: 'hidden' as const,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    flexBasis: '47%', flexGrow: 1,
   },
-  cardTitle: { ...Typography.subheading, color: Colors.textPrimary },
-  sourcesBar: { height: 8, flexDirection: 'row', borderRadius: 4, overflow: 'hidden' },
-  sourceChunk: { height: 8 },
-  sourcesLegend: { flexDirection: 'row', justifyContent: 'space-around' },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  legendDot: { width: 8, height: 8, borderRadius: 4 },
-  legendLabel: { ...Typography.bodySmall, color: Colors.textSecondary },
-  legendValue: { ...Typography.bodySmall, color: Colors.textPrimary, fontWeight: '700' },
-  cta: {
-    backgroundColor: Colors.accent,
-    borderRadius: Radius.xl,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: Spacing.lg,
-    gap: Spacing.sm,
-    marginTop: Spacing.sm,
+  miniStatAccent: {
+    width: 4, borderTopLeftRadius: 12, borderBottomLeftRadius: 12,
   },
-  ctaPressed: { opacity: 0.85 },
-  ctaText: { ...Typography.subheading, color: Colors.textInverse, fontWeight: '700' },
-  sectionHeader: { marginTop: Spacing.lg, marginBottom: Spacing.xs },
-  sectionTitle: { ...Typography.subheading, color: Colors.textSecondary },
-  smallCard: {
-    backgroundColor: Colors.surface,
-    padding: Spacing.md,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-    alignItems: 'center',
-    gap: 4,
+
+  // Mobile Menu
+  menuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  menuSheet: {
+    backgroundColor: Colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    paddingHorizontal: 24, paddingTop: 12, paddingBottom: 40,
+    borderWidth: 1, borderColor: Colors.surfaceBorder, borderBottomWidth: 0,
   },
-  iconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 4,
+  menuHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: Colors.surfaceBorder, alignSelf: 'center', marginBottom: 20 },
+  menuTitle: { color: Colors.textPrimary, fontSize: 18, fontWeight: '700', marginBottom: 16 },
+  menuItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: Colors.surfaceBorder,
   },
-  smallCardTitle: { ...Typography.bodySmall, color: Colors.textPrimary, fontWeight: '700' },
-  smallCardSub: { ...Typography.caption, color: Colors.textTertiary, fontSize: 10 },
+  menuIconBox: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  menuItemText: { flex: 1, color: Colors.textPrimary, fontSize: 15, fontWeight: '500' },
+
+  // Walk-in Quick Action
+  walkinBtn: {
+    flex: 1,
+    flexDirection: 'row' as const, alignItems: 'center', gap: 12,
+    backgroundColor: Colors.accent, borderRadius: 14,
+    paddingHorizontal: 16, paddingVertical: 14,
+  },
+  walkinIconBox: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center' as const, justifyContent: 'center' as const,
+  },
+  walkinTitle: { color: '#fff', fontSize: 14, fontWeight: '700' as const },
+  walkinSub:   { color: 'rgba(255,255,255,0.75)', fontSize: 10, marginTop: 1 },
+
+  newBookingBtn: {
+    flexDirection: 'row' as const, alignItems: 'center', gap: 6,
+    backgroundColor: Colors.surface, borderRadius: 14,
+    paddingHorizontal: 14, paddingVertical: 14,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
+  },
+  newBookingText: { color: Colors.accent, fontSize: 13, fontWeight: '700' as const },
 });

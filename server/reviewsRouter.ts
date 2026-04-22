@@ -97,7 +97,7 @@ export const reviewsRouter = router({
             text: r.text,
             relativeTimeDescription: r.relativeTime,
             profilePhotoUrl: null,
-            time: r.createdAt?.getTime() || Date.now(),
+            time: r.createdAt ? new Date(r.createdAt as unknown as string).getTime() : Date.now(),
             isReplied: r.isReplied,
             replyText: r.replyText,
           })),

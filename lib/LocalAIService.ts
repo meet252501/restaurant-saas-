@@ -63,7 +63,7 @@ class LocalAIService {
     }
 
     try {
-      console.log("[LocalAI] Generatring response for:", prompt);
+      console.log("[LocalAI] Generating response for:", prompt);
       
       // In a real build, we'd call the MLC engine here:
       // const engine = await MLCLLM.getEngine('qwen-1.5b');

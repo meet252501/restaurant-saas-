@@ -2,11 +2,12 @@ import '../global.css';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import React, { useState } from 'react';
-import { View } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Platform } from 'react-native';
 import { trpc, createTRPCClient } from '../lib/trpc';
 import { Colors } from '../lib/theme';
 import { ErrorBoundary } from '../components/ErrorBoundary';
+import { offlineSync } from '../lib/offlineSync';
 
 import { useSaaSStore } from '../lib/saas-store';
 
@@ -26,6 +27,13 @@ export default function RootLayout() {
   React.useEffect(() => {
     loadFromStorage();
   }, [loadFromStorage]);
+
+  // Initialize offline sync on native platforms
+  useEffect(() => {
+    if (Platform.OS !== 'web') {
+      offlineSync.initialize().catch(e => console.warn('[OfflineSync] Init failed:', e));
+    }
+  }, []);
 
   return (
     <ErrorBoundary>

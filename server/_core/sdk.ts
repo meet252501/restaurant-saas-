@@ -250,7 +250,7 @@ class SDKServer {
     const sessionUserId = session.openId;
     const signedInAt = new Date();
 
-    if (!process.env.DATABASE_URL) {
+    if (!process.env.DATABASE_URL && !process.env.DATABASE_PATH) {
       if (sessionUserId !== "mock-manager" && sessionUserId !== "mock-waiter") {
          throw ForbiddenError("User not found (Mock)");
       }
@@ -266,7 +266,7 @@ class SDKServer {
         createdAt: signedInAt,
         updatedAt: signedInAt,
         lastSignedIn: signedInAt,
-      } as User;
+      } as unknown as User;
     }
 
     let user = await db.getUserByOpenId(sessionUserId);

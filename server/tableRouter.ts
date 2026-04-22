@@ -2,7 +2,7 @@ import { z } from "zod";
 import { router, publicProcedure, protectedProcedure } from "./_core/trpc";
 import { tables } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
-import { db } from "./db";
+import { db, isMockMode } from "./db";
 import { observable } from "@trpc/server/observable";
 import { ee, EVENTS } from "./events";
 import { MOCK_TABLES } from "./mockData";
@@ -11,7 +11,7 @@ export const tableRouter = router({
   listByRestaurant: publicProcedure
     .input(z.object({ restaurantId: z.string() }))
     .query(async ({ input }) => {
-      if (!process.env.DATABASE_URL) {
+      if (isMockMode()) {
         return MOCK_TABLES.filter(t => t.restaurantId === input.restaurantId);
       }
       return await db.select().from(tables).where(eq(tables.restaurantId, input.restaurantId));
@@ -23,7 +23,7 @@ export const tableRouter = router({
       status: z.enum(["available", "occupied", "reserved", "cleaning", "blocked"]),
     }))
     .mutation(async ({ input }) => {
-      if (!process.env.DATABASE_URL) {
+      if (isMockMode()) {
         const t = MOCK_TABLES.find(t => t.id === input.id);
         if (t) t.status = input.status;
         ee.emit(EVENTS.TABLES_CHANGED);
@@ -56,7 +56,7 @@ export const tableRouter = router({
         zone: input.zone || "Indoor",
       };
 
-      if (!process.env.DATABASE_URL) {
+      if (isMockMode()) {
         MOCK_TABLES.push(newTable);
         ee.emit(EVENTS.TABLES_CHANGED);
         return newTable;
@@ -81,7 +81,7 @@ export const tableRouter = router({
       zone: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
-      if (!process.env.DATABASE_URL) {
+      if (isMockMode()) {
         const t = MOCK_TABLES.find(t => t.id === input.id) as any;
         if (t) {
           if (input.capacity) t.capacity = input.capacity;
@@ -101,7 +101,7 @@ export const tableRouter = router({
   removeTable: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input }) => {
-      if (!process.env.DATABASE_URL) {
+      if (isMockMode()) {
         const idx = MOCK_TABLES.findIndex(t => t.id === input.id);
         if (idx !== -1) MOCK_TABLES.splice(idx, 1);
         ee.emit(EVENTS.TABLES_CHANGED);

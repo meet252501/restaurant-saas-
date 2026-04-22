@@ -8,12 +8,13 @@
  */
 import React, { useState } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, Pressable,
-  RefreshControl, Modal, TextInput, Alert, ActivityIndicator,
+  View, Text, ScrollView, StyleSheet, Pressable, Image,
+  RefreshControl, Modal, Alert, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { QuickAccessButton } from '../../components/QuickAccessMenu';
 import { trpc, RESTAURANT_ID } from '../../lib/trpc';
 import { Colors, Spacing, Typography, Radius, Shadows, TableStatusColors } from '../../lib/theme';
 
@@ -106,33 +107,40 @@ export default function TablesScreen() {
     { id: 't8', restaurantId: RESTAURANT_ID, tableNumber: 8, capacity: 2, status: 'available', zone: 'Bar' },
   ]);
 
-  // TRPC mutations
-  const addTableMutation    = trpc.table.addTable.useMutation({
-    onSuccess: (data) => { setMockTables(prev => [...prev, data as any]); setAddModal(false); },
-    onError: () => { /* fallback: add locally */ setAddModal(false); addLocally(); },
-  });
-  const updateStatusMutation = trpc.table.updateStatus.useMutation({
-    onSuccess: () => { trpcUtils.table.listByRestaurant.invalidate(); },
-  });
-  const updateTableMutation  = trpc.table.updateTable.useMutation({
-    onSuccess: () => { setEditModal(null); },
-    onError: () => setEditModal(null),
-  });
-  const removeTableMutation  = trpc.table.removeTable.useMutation({
-    onSuccess: (_, vars) => setMockTables(prev => prev.filter(t => t.id !== vars.id)),
-    onError: (_, vars) => setMockTables(prev => prev.filter(t => t.id !== (vars as any).id)),
-  });
+  // TRPC queries
+  const { data: liveTables = [] } = trpc.table.listByRestaurant.useQuery(
+    { restaurantId: RESTAURANT_ID },
+    { refetchInterval: 10000 }
+  );
 
-  const allTables = mockTables;
+  // Combine live and mock (live takes priority)
+  const allTables = liveTables.length > 0 ? liveTables : mockTables;
   const statusCounts = allTables.reduce((acc: any, t) => {
     acc[t.status] = (acc[t.status] ?? 0) + 1; return acc;
   }, {});
   const filtered = filterStatus ? allTables.filter(t => t.status === filterStatus) : allTables;
 
+  // TRPC mutations
+  const addTableMutation    = trpc.table.addTable.useMutation({
+    onSuccess: () => { trpcUtils.table.listByRestaurant.invalidate(); setAddModal(false); },
+    onError: () => { setAddModal(false); addLocally(); },
+  });
+  const updateStatusMutation = trpc.table.updateStatus.useMutation({
+    onSuccess: () => { trpcUtils.table.listByRestaurant.invalidate(); },
+  });
+  const updateTableMutation  = trpc.table.updateTable.useMutation({
+    onSuccess: () => { trpcUtils.table.listByRestaurant.invalidate(); setEditModal(null); },
+    onError: () => setEditModal(null),
+  });
+  const removeTableMutation  = trpc.table.removeTable.useMutation({
+    onSuccess: () => { trpcUtils.table.listByRestaurant.invalidate(); },
+  });
+
   // ── Handlers ────────────────────────────────────────────────────────
   function handleStatusChange(newStatus: any) {
     if (!statusModal) return;
     updateStatusMutation.mutate({ id: statusModal.id, status: newStatus });
+    // Aggressive local update for UI snappy-ness
     setMockTables(prev => prev.map(t => t.id === statusModal.id ? { ...t, status: newStatus } : t));
     setStatusModal(null);
   }
@@ -221,13 +229,16 @@ export default function TablesScreen() {
         {/* Header */}
         <View style={styles.header}>
           <View>
+            <Text style={styles.greeting}>Manage Seating</Text>
             <Text style={styles.title}>Floor Map</Text>
-            <Text style={styles.subtitle}>{allTables.length} tables · Tap to change status · ✏️ Edit · 🗑️ Remove</Text>
           </View>
-          <Pressable style={[styles.addFab, Shadows.sm]} onPress={() => { setNewCapacity(4); setNewZone('Indoor'); setAddModal(true); }}>
-            <Ionicons name="add" size={20} color="#fff" />
-            <Text style={styles.addFabText}>Add Table</Text>
-          </Pressable>
+          <View style={styles.headerActions}>
+            <Pressable style={[styles.addFab, Shadows.md]} onPress={() => { setNewCapacity(4); setNewZone('Indoor'); setAddModal(true); }}>
+              <Ionicons name="add" size={20} color="#fff" />
+              <Text style={styles.addFabText}>Add Table</Text>
+            </Pressable>
+            <QuickAccessButton />
+          </View>
         </View>
 
         {/* Status filter pills */}
@@ -356,15 +367,32 @@ export default function TablesScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
   content: { padding: Spacing.lg, gap: Spacing.lg },
-  header: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: Spacing.sm },
-  title: { ...Typography.heading, color: Colors.textPrimary },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: Spacing.xl,
+  },
+  greeting: { ...Typography.body, color: Colors.textSecondary },
+  title: { ...Typography.heading, color: Colors.textPrimary, marginTop: 4 },
   subtitle: { ...Typography.caption, color: Colors.textTertiary, marginTop: 2, lineHeight: 16 },
+  headerActions: { flexDirection: 'row', gap: Spacing.sm, alignItems: 'center' },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: { ...Typography.body, color: Colors.textInverse, fontWeight: '700' },
   addFab: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: Colors.accent, borderRadius: Radius.full,
-    paddingHorizontal: Spacing.md, paddingVertical: 8,
+    backgroundColor: Colors.surfaceElevated, borderRadius: Radius.full,
+    paddingHorizontal: Spacing.md, paddingVertical: 10,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
   },
-  addFabText: { ...Typography.bodySmall, color: '#fff', fontWeight: '700' },
+  addFabText: { ...Typography.bodySmall, color: Colors.textPrimary, fontWeight: '700' },
   pills: { flexDirection: 'row', gap: Spacing.sm, paddingBottom: 4 },
   pill: {
     flexDirection: 'row', alignItems: 'center', gap: 6,

@@ -6,12 +6,13 @@
  */
 
 import { z } from "zod";
-import { publicProcedure, router, protectedProcedure } from "./_core/trpc";
+import { router, protectedProcedure } from "./_core/trpc";
 import { deliveryOrders } from "../drizzle/schema";
 import { getDb } from "./db";
-import { eq, desc, and, gte, lte } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { NotificationService } from "./_core/notification";
 import { ThermalPrintService } from '../lib/ThermalPrintService';
+import { GoogleSheetsService, ManagerEmailService } from './_core/googleSheets';
 
 // Realistic Zomato/Swiggy mock orders for Green Apple Restaurant
 interface MockDeliveryOrder {
@@ -88,7 +89,7 @@ export const deliveryRouter = router({
           total: o.totalAmount,
           status: o.status as any,
           estimatedDelivery: "TBD",
-          placedAt: o.createdAt?.toISOString() || new Date().toISOString(),
+          placedAt: (o.createdAt as unknown as string) || new Date().toISOString(),
         }));
       }
     }
@@ -152,6 +153,19 @@ export const deliveryRouter = router({
         items: input.items.map(i => `${i.qty}x ${i.name}`).join(", "), 
         platform: newOrder.platform 
       }).catch(e => console.error("[Printer] Error:", e));
+
+      // 🔗 Sync to Google Sheets + alert manager email
+      const deliveryRow = {
+        orderId: newOrder.orderId,
+        platform: newOrder.platform,
+        customerName: newOrder.customerName,
+        items: input.items.map(i => `${i.qty}x ${i.name}`).join(", "),
+        total: newOrder.total,
+        status: newOrder.status,
+        placedAt: newOrder.placedAt,
+      };
+      GoogleSheetsService.appendDeliveryOrder(deliveryRow).catch(e => console.error("[Sheets] Delivery sync failed:", e));
+      ManagerEmailService.sendDeliveryAlert(deliveryRow).catch(e => console.error("[ManagerEmail] Delivery alert failed:", e));
 
       return { success: true, order: newOrder };
     }),

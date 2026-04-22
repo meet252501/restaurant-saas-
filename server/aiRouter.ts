@@ -1,39 +1,66 @@
 /**
  * AI Router — Restaurant Intelligence Assistant
  *
- * Priority chain:
- *   1. Google Gemini Flash (FREE — if GEMINI_API_KEY set in .env)
- *   2. OpenAI GPT-4o-mini (if OPENAI_API_KEY set)
- *   3. Local NLP heuristics engine (zero cost, always works)
- *
- * The local engine uses RAG (Retrieval-Augmented Generation) pattern:
- * it pulls live restaurant data (bookings, tables, revenue) and injects
- * it as context into the prompt or into the rule-matching engine.
+ * Uses Ollama (local LLM) with live restaurant data injected as context.
+ * Falls back to mock data when DB is unavailable.
  */
 import { z } from "zod";
 import { router, protectedProcedure } from "./_core/trpc";
 import { MOCK_BOOKINGS, MOCK_TABLES } from "./mockData";
-
-// ── Gemini Setup ─────────────────────────────────────────────────────────────
-let geminiModel: any = null;
-const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
-
-if (GEMINI_KEY) {
-  try {
-    const { GoogleGenerativeAI } = require("@google/generative-ai");
-    const genAI = new GoogleGenerativeAI(GEMINI_KEY);
-    geminiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    console.log("[AIRouter] ✅ Gemini Flash active (FREE tier).");
-  } catch (e) {
-    console.warn("[AIRouter] Gemini init failed, falling back to local NLP:", e);
-  }
-} else {
-  console.log("[AIRouter] ℹ️ No AI key — using local NLP heuristics engine.");
-}
+import { getDb, isMockMode } from "./db";
+import { bookings, tables, deliveryOrders } from "../drizzle/schema";
+import { eq, sql } from "drizzle-orm";
+import ollama from "ollama";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function getRestaurantContext() {
+async function getRestaurantContext() {
   const todayDate = new Date().toISOString().split("T")[0];
+
+  // Try real DB first
+  if (!isMockMode()) {
+    try {
+      const db = getDb();
+      if (db) {
+        const [bookingStats] = await db.select({
+          total: sql<number>`count(*)`,
+          pending: sql<number>`sum(case when status = 'pending' then 1 else 0 end)`,
+          confirmed: sql<number>`sum(case when status = 'confirmed' then 1 else 0 end)`,
+          cancelled: sql<number>`sum(case when status in ('cancelled','no_show') then 1 else 0 end)`,
+        }).from(bookings).where(eq(bookings.bookingDate, todayDate));
+
+        const [tableStats] = await db.select({
+          total: sql<number>`count(*)`,
+          occupied: sql<number>`sum(case when status = 'occupied' then 1 else 0 end)`,
+          available: sql<number>`sum(case when status = 'available' then 1 else 0 end)`,
+        }).from(tables);
+
+        const [deliveryStats] = await db.select({
+          revenue: sql<number>`coalesce(sum(total_amount), 0)`,
+        }).from(deliveryOrders).where(sql`date(created_at) = ${todayDate}`);
+
+        const totalTables = Number(tableStats?.total ?? 0);
+        const occupiedTables = Number(tableStats?.occupied ?? 0);
+
+        return {
+          date: todayDate,
+          totalBookings: Number(bookingStats?.total ?? 0),
+          pendingBookings: Number(bookingStats?.pending ?? 0),
+          confirmedBookings: Number(bookingStats?.confirmed ?? 0),
+          cancelledBookings: Number(bookingStats?.cancelled ?? 0),
+          availableTables: Number(tableStats?.available ?? 0),
+          occupiedTables,
+          totalTables,
+          occupancy: totalTables > 0 ? Math.round((occupiedTables / totalTables) * 100) : 0,
+          projectedRevenue: Number(deliveryStats?.revenue ?? 0),
+          dataSource: "live_db",
+        };
+      }
+    } catch (e) {
+      console.warn("[AIRouter] DB query failed, falling back to mock data:", e);
+    }
+  }
+
+  // Fallback: mock data
   const todayBookings = MOCK_BOOKINGS.filter(b => b.bookingDate === todayDate);
   const availableTables = MOCK_TABLES.filter(t => t.status === "available");
   const occupiedTables  = MOCK_TABLES.filter(t => t.status === "occupied");
@@ -49,101 +76,90 @@ function getRestaurantContext() {
     totalTables: MOCK_TABLES.length,
     occupancy: Math.round((occupiedTables.length / Math.max(MOCK_TABLES.length, 1)) * 100),
     projectedRevenue: todayBookings.reduce((sum, b) => sum + (b.partySize * 850), 0),
-  };
-}
-
-// ── Local NLP Heuristics (offline fallback) ──────────────────────────────────
-function localNLP(question: string, ctx: ReturnType<typeof getRestaurantContext>) {
-  const q = question.toLowerCase();
-
-  if (q.includes("how many") && (q.includes("booking") || q.includes("reservation")))
-    return { response: `You have **${ctx.totalBookings}** bookings today. **${ctx.pendingBookings}** are pending confirmation and **${ctx.confirmedBookings}** are confirmed.`, actionLink: "/(tabs)/bookings" };
-
-  if (q.includes("revenue") || q.includes("money") || q.includes("sales") || q.includes("earning"))
-    return { response: `💰 Projected revenue for today is **₹${ctx.projectedRevenue.toLocaleString("en-IN")}** based on ${ctx.confirmedBookings} confirmed bookings.`, actionLink: "/(tabs)/" };
-
-  if (q.includes("busy") || q.includes("occupancy") || q.includes("full") || q.includes("available table"))
-    return { response: ctx.occupancy > 80
-      ? `🔴 Very busy! Occupancy: **${ctx.occupancy}%** — only **${ctx.availableTables}** tables free.`
-      : `🟢 Moderate traffic. Occupancy: **${ctx.occupancy}%** — **${ctx.availableTables}** tables available.` };
-
-  if (q.includes("cancel") || q.includes("no show") || q.includes("no-show"))
-    return { response: `**${ctx.cancelledBookings}** cancellations or no-shows today. Consider sending reminders via WhatsApp to reduce this.` };
-
-  if (q.includes("pending") || q.includes("confirm"))
-    return { response: `⏳ **${ctx.pendingBookings}** bookings are pending your acceptance. Go to Bookings → Pending to action them.`, actionLink: "/(tabs)/bookings" };
-
-  if (q.includes("address") || q.includes("location") || q.includes("where"))
-    return { response: `📍 Restaurant Location:\n1st Floor, Nr. Gandhinagar Nagrik Bank, GH-4II\nSector 16, Gandhinagar, Gujarat 382016\n\n📞 096626 53440` };
-
-  if (q.includes("hours") || q.includes("open") || q.includes("close") || q.includes("timing"))
-    return { response: `🕐 Today's Hours:\n\n🌞 Lunch: 11:00 AM – 3:30 PM\n🌙 Dinner: 6:30 PM – 10:30 PM\n\nClosed between 3:30 PM and 6:30 PM.` };
-
-  if (q.includes("price") || q.includes("cost") || q.includes("₹") || q.includes("charge") || q.includes("menu"))
-    return { response: `💰 Standard pricing: ₹200–₹400 per person.\n\nAll-you-can-eat options available. Full vegetarian menu included.`, actionLink: "/menu-editor" };
-
-  if (q.includes("table") && (q.includes("add") || q.includes("create") || q.includes("new")))
-    return { response: `To add a table, go to **Tables** tab → tap **+ Add Table** (top right). You can set the capacity and zone directly in the app!`, actionLink: "/(tabs)/tables" };
-
-  if (q.includes("staff") || q.includes("employee"))
-    return { response: `Manage staff through **Settings** → Staff section. You can add, remove and assign roles from within the app.`, actionLink: "/settings" };
-
-  // Default with live context
-  return {
-    response: `I'm your Restaurant AI 🍏\n\n📊 **Today's snapshot:**\n• Bookings: ${ctx.totalBookings} (${ctx.pendingBookings} pending)\n• Occupancy: ${ctx.occupancy}%\n• Tables free: ${ctx.availableTables}/${ctx.totalTables}\n• Projected revenue: ₹${ctx.projectedRevenue.toLocaleString("en-IN")}\n\nAsk me about bookings, revenue, tables, hours, or menu pricing!`
+    dataSource: "mock",
   };
 }
 
 // ── Router ────────────────────────────────────────────────────────────────────
 export const aiRouter = router({
   chat: protectedProcedure
-    .input(z.object({ restaurantId: z.string(), message: z.string() }))
+    .input(z.object({ restaurantId: z.string(), message: z.string(), model: z.string().optional() }))
     .mutation(async ({ input }) => {
-      const ctx = getRestaurantContext();
+      const ctx = await getRestaurantContext();
 
-      // 1. Try Gemini Flash (FREE)
-      if (geminiModel) {
-        try {
-          const systemPrompt = `You are a smart restaurant assistant AI for a restaurant management app called TableBook.
+      const systemPrompt = `You are a smart restaurant assistant AI for a restaurant management app called TableBook.
 You must answer ONLY questions related to this restaurant's operations.
 Keep responses concise, professional, and under 3 sentences.
+Do NOT use markdown headers, just plain text and bolding.
 Use emojis sparingly. Always be helpful and action-oriented.
 
-LIVE RESTAURANT DATA (${ctx.date}):
+LIVE RESTAURANT DATA (${ctx.date}) [source: ${ctx.dataSource}]:
 - Total bookings today: ${ctx.totalBookings} (${ctx.pendingBookings} pending, ${ctx.confirmedBookings} confirmed)
 - Cancellations/no-shows: ${ctx.cancelledBookings}
 - Tables: ${ctx.totalTables} total, ${ctx.occupiedTables} occupied, ${ctx.availableTables} available
 - Occupancy rate: ${ctx.occupancy}%
-- Projected daily revenue: ₹${ctx.projectedRevenue.toLocaleString("en-IN")}
+- Projected daily revenue: ₹${ctx.projectedRevenue.toLocaleString("en-IN")}`;
 
-Restaurant hours: Lunch 11AM–3:30PM, Dinner 6:30PM–10:30PM
-Pricing: ₹200–₹400 per person`;
+      try {
+        const selectedModel = input.model || 'qwen2.5:0.5b';
+        console.log(`[AIRouter] Calling local Ollama model ${selectedModel} (data: ${ctx.dataSource})...`);
+        const response = await ollama.chat({
+          model: selectedModel,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: input.message }
+          ],
+        });
 
-          const chat = geminiModel.startChat({
-            history: [{ role: "user", parts: [{ text: systemPrompt }] }, { role: "model", parts: [{ text: "Understood. I'm ready to assist with restaurant operations." }] }],
-          });
-
-          const result = await chat.sendMessage(input.message);
-          const text = result.response.text();
-          console.log("[AIRouter] ✅ Gemini response generated.");
-          return { response: text, source: "gemini" };
-        } catch (e: any) {
-          console.error("[AIRouter] Gemini error, falling back to NLP:", e.message);
+        console.log(`[AIRouter] ✅ Ollama local response generated.`);
+        return { response: response.message.content, source: "ollama_local" };
+      } catch (e: any) {
+        console.error("[AIRouter] Ollama error:", e.message);
+        
+        let fallbackMsg = "⚠️ Local AI Offline. Please ensure Ollama is running (`ollama run qwen2.5:0.5b`).";
+        if (e.message.includes("model 'qwen2.5:0.5b' not found")) {
+            fallbackMsg = "⚠️ Local AI Model missing. Open terminal and run: `ollama run qwen2.5:0.5b` to download.";
+        } else if (e.code === 'ECONNREFUSED') {
+            fallbackMsg = "⚠️ Cannot connect to Local AI. Is Ollama running on your machine?";
         }
-      }
 
-      // 2. Simulate latency + use local NLP
-      await new Promise(r => setTimeout(r, 400));
-      return { ...localNLP(input.message, ctx), source: "local" };
+        return { 
+            response: fallbackMsg + `\n\nFallback basic data: Occupancy is ${ctx.occupancy}%, revenue is ₹${ctx.projectedRevenue.toLocaleString("en-IN")}.`, 
+            source: "local_error" 
+        };
+      }
     }),
 
-  /** 
-   * Test endpoint to verify AI is working 
-   */
-  ping: protectedProcedure.query(() => ({
-    status: geminiModel ? "gemini_live" : "local_nlp",
-    message: geminiModel
-      ? "Gemini Flash is active and ready (FREE tier)"
-      : "Running local NLP engine — add GEMINI_API_KEY to .env for AI upgrade",
-  })),
+  /** Test endpoint to verify AI is working */
+  ping: protectedProcedure.query(async () => {
+    try {
+        await ollama.list();
+        return { status: "local_ai_live", message: "Ollama Local AI is active and connected!" };
+    } catch {
+        return { status: "local_error", message: "Ollama not reachable." };
+    }
+  }),
+
+  /** List available models in local Ollama */
+  listModels: protectedProcedure.query(async () => {
+    try {
+      const response = await ollama.list();
+      return { success: true, models: response.models };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  }),
+
+  /** Pull a model from Ollama registry */
+  pullModel: protectedProcedure
+    .input(z.object({ model: z.string() }))
+    .mutation(async ({ input }) => {
+      try {
+        // ollama.pull can take a while and stream progress, but for simplicity here we await it
+        await ollama.pull({ model: input.model });
+        return { success: true };
+      } catch (e: any) {
+        return { success: false, error: e.message };
+      }
+    }),
 });

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { router, publicProcedure, protectedProcedure } from "./_core/trpc";
 import { bookings, customers, tables } from "../drizzle/schema";
 import { eq, and, sql, desc, gte, lte } from "drizzle-orm";
-import { db } from "./db";
+import { db, isMockMode } from "./db";
 import { MOCK_BOOKINGS, MOCK_CUSTOMERS, MOCK_TABLES } from "./mockData";
 
 /**
@@ -24,7 +24,7 @@ export const analyticsRouterEnhanced = router({
     .input(z.object({ restaurantId: z.string() }))
     .query(async ({ input }) => {
       const today = new Date().toISOString().split('T')[0];
-      const isMock = !process.env.DATABASE_URL;
+      const isMock = isMockMode();
 
       let dayBookings = [];
       let allTables = [];
@@ -49,8 +49,8 @@ export const analyticsRouterEnhanced = router({
         allTables = MOCK_TABLES;
       }
 
-      const confirmedBookings = dayBookings.filter(b => b.status === 'confirmed' || b.status === 'checked_in');
-      const completedBookings = dayBookings.filter(b => b.status === 'completed');
+      const confirmedBookings = dayBookings.filter(b => b.status === 'confirmed' || b.status === 'seated');
+      const completedBookings = dayBookings.filter(b => b.status === 'done');
       const noShows = dayBookings.filter(b => b.status === 'no_show');
       const totalRevenue = completedBookings.reduce((sum, b) => sum + (b.coverCharge || 0), 0);
       const totalGuests = dayBookings.reduce((sum, b) => sum + b.partySize, 0);
@@ -68,7 +68,7 @@ export const analyticsRouterEnhanced = router({
         averageRevenue: completedBookings.length > 0 ? (totalRevenue / completedBookings.length).toFixed(2) : '0',
         occupancyRate: allTables.length > 0 ? (((dayBookings.length / allTables.length) * 100).toFixed(1)) : '0',
         peakHour: getPeakHour(dayBookings),
-        busyTables: dayBookings.filter(b => b.status === 'checked_in').length,
+        busyTables: dayBookings.filter(b => b.status === 'seated').length,
         availableTables: allTables.filter(t => t.status === 'available').length,
       };
     }),
@@ -84,7 +84,7 @@ export const analyticsRouterEnhanced = router({
         .toISOString()
         .split('T')[0];
       const today = new Date().toISOString().split('T')[0];
-      const isMock = !process.env.DATABASE_URL;
+      const isMock = isMockMode();
 
       let monthBookings = [];
 
@@ -126,7 +126,7 @@ export const analyticsRouterEnhanced = router({
       monthBookings.forEach(b => {
         if (dailyData[b.bookingDate]) {
           dailyData[b.bookingDate].bookings++;
-          if (b.status === 'completed') {
+          if (b.status === 'done') {
             dailyData[b.bookingDate].completedBookings++;
             dailyData[b.bookingDate].revenue += b.coverCharge || 0;
           }
@@ -153,7 +153,7 @@ export const analyticsRouterEnhanced = router({
   topCustomers: protectedProcedure
     .input(z.object({ restaurantId: z.string(), limit: z.number().default(10) }))
     .query(async ({ input }) => {
-      const isMock = !process.env.DATABASE_URL;
+      const isMock = isMockMode();
 
       if (isMock) {
         // Simulate top customers
@@ -204,7 +204,7 @@ export const analyticsRouterEnhanced = router({
       const startDate = new Date(Date.now() - input.days * 24 * 60 * 60 * 1000)
         .toISOString()
         .split('T')[0];
-      const isMock = !process.env.DATABASE_URL;
+      const isMock = isMockMode();
 
       let periodBookings = [];
 
@@ -216,12 +216,12 @@ export const analyticsRouterEnhanced = router({
             and(
               eq(bookings.restaurantId, input.restaurantId),
               gte(bookings.bookingDate, startDate),
-              eq(bookings.status, 'completed')
+              eq(bookings.status, 'done')
             )
           );
       } catch (e) {
         periodBookings = MOCK_BOOKINGS.filter(
-          b => b.bookingDate >= startDate && b.status === 'completed'
+          b => b.bookingDate >= startDate && b.status === 'done'
         );
       }
 
@@ -269,7 +269,7 @@ export const analyticsRouterEnhanced = router({
       const startDate = new Date(Date.now() - input.days * 24 * 60 * 60 * 1000)
         .toISOString()
         .split('T')[0];
-      const isMock = !process.env.DATABASE_URL;
+      const isMock = isMockMode();
 
       let periodBookings = [];
 
@@ -288,7 +288,7 @@ export const analyticsRouterEnhanced = router({
       }
 
       const totalBookings = periodBookings.length;
-      const completed = periodBookings.filter(b => b.status === 'completed').length;
+      const completed = periodBookings.filter(b => b.status === 'done').length;
       const noShows = periodBookings.filter(b => b.status === 'no_show').length;
       const cancelled = periodBookings.filter(b => b.status === 'cancelled').length;
       const confirmed = periodBookings.filter(b => b.status === 'confirmed').length;

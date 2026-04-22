@@ -2,7 +2,7 @@ import { z } from "zod";
 import { router, protectedProcedure } from "./_core/trpc";
 import { tables, bookings } from "../drizzle/schema";
 import { eq, and, sql } from "drizzle-orm";
-import { db } from "./db";
+import { db, isMockMode } from "./db";
 import { MOCK_TABLES, MOCK_BOOKINGS } from "./mockData";
 import { observable } from "@trpc/server/observable";
 import { ee, EVENTS } from "./events";
@@ -21,7 +21,7 @@ export const staffRouter = router({
   getTableBoard: protectedProcedure
     .input(z.object({ restaurantId: z.string(), date: z.string() }))
     .query(async ({ input }) => {
-      const isMock = !process.env.DATABASE_URL;
+      const isMock = isMockMode();
 
       let allTables = [];
       try {
@@ -80,7 +80,7 @@ export const staffRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      const isMock = !process.env.DATABASE_URL;
+      const isMock = isMockMode();
 
       if (isMock) {
         const table = MOCK_TABLES.find(t => t.id === input.tableId);
@@ -142,7 +142,7 @@ export const staffRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      const isMock = !process.env.DATABASE_URL;
+      const isMock = isMockMode();
 
       const bookingId = `bk_override_${Date.now()}`;
 
@@ -187,12 +187,12 @@ export const staffRouter = router({
   checkInCustomer: protectedProcedure
     .input(z.object({ bookingId: z.string() }))
     .mutation(async ({ input }) => {
-      const isMock = !process.env.DATABASE_URL;
+      const isMock = isMockMode();
 
       if (isMock) {
         const booking = MOCK_BOOKINGS.find(b => b.id === input.bookingId);
         if (booking) {
-          booking.status = 'checked_in';
+          booking.status = 'seated';
           booking.checkedInAt = new Date().toISOString();
         }
         return { success: true, message: 'Customer checked in' };
@@ -202,7 +202,7 @@ export const staffRouter = router({
         await db
           .update(bookings)
           .set({
-            status: 'checked_in',
+            status: 'seated',
 
           })
           .where(eq(bookings.id, input.bookingId));
@@ -227,12 +227,12 @@ export const staffRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      const isMock = !process.env.DATABASE_URL;
+      const isMock = isMockMode();
 
       if (isMock) {
         const booking = MOCK_BOOKINGS.find(b => b.id === input.bookingId);
         if (booking) {
-          booking.status = 'completed';
+          booking.status = 'done';
           booking.checkedOutAt = new Date().toISOString();
           if (input.finalBill) booking.finalBill = input.finalBill;
         }
@@ -243,7 +243,7 @@ export const staffRouter = router({
         await db
           .update(bookings)
           .set({
-            status: 'completed',
+            status: 'done',
 
             finalBill: input.finalBill || 0,
           })
@@ -264,7 +264,7 @@ export const staffRouter = router({
   markNoShow: protectedProcedure
     .input(z.object({ bookingId: z.string() }))
     .mutation(async ({ input }) => {
-      const isMock = !process.env.DATABASE_URL;
+      const isMock = isMockMode();
 
       if (isMock) {
         const booking = MOCK_BOOKINGS.find(b => b.id === input.bookingId);
@@ -300,7 +300,7 @@ export const staffRouter = router({
     .input(z.object({ restaurantId: z.string() }))
     .query(async ({ input }) => {
       const today = new Date().toISOString().split('T')[0];
-      const isMock = !process.env.DATABASE_URL;
+      const isMock = isMockMode();
 
       let dayBookings = [];
       try {
@@ -320,8 +320,8 @@ export const staffRouter = router({
       return {
         totalBookings: dayBookings.length,
         confirmedBookings: dayBookings.filter(b => b.status === 'confirmed').length,
-        checkedIn: dayBookings.filter(b => b.status === 'checked_in').length,
-        completed: dayBookings.filter(b => b.status === 'completed').length,
+        checkedIn: dayBookings.filter(b => b.status === 'seated').length,
+        completed: dayBookings.filter(b => b.status === 'done').length,
         noShows: dayBookings.filter(b => b.status === 'no_show').length,
         cancelled: dayBookings.filter(b => b.status === 'cancelled').length,
         averagePartySize: Math.round(

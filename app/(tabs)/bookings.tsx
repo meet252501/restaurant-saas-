@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, Pressable, FlatList,
+  View, Text, ScrollView, StyleSheet, Pressable, FlatList, Image,
   RefreshControl, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { QuickAccessButton } from '../../components/QuickAccessMenu';
 import { trpc, RESTAURANT_ID } from '../../lib/trpc';
 import { Colors, Spacing, Typography, Radius, Shadows } from '../../lib/theme';
 
@@ -180,19 +181,20 @@ export default function BookingsScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.title}>Bookings</Text>
-          <Text style={styles.dateLabel}>{date}</Text>
+          <Text style={styles.greeting}>{date}</Text>
+          <Text style={styles.title}>Reservations</Text>
         </View>
-        <View style={styles.headerRight}>
+        <View style={styles.headerActions}>
           {pendingCount > 0 && (
             <View style={styles.pendingBadge}>
               <Text style={styles.pendingBadgeText}>{pendingCount} pending</Text>
             </View>
           )}
-          <Pressable style={[styles.addBtn, Shadows.sm]} onPress={() => router.push('/new-booking')}>
+          <Pressable style={[styles.addBtn, Shadows.md]} onPress={() => router.push('/new-booking')}>
             <Ionicons name="add" size={20} color={Colors.textInverse} />
             <Text style={styles.addBtnText}>New</Text>
           </Pressable>
+          <QuickAccessButton />
         </View>
       </View>
 
@@ -252,22 +254,32 @@ export default function BookingsScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
   header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    padding: Spacing.lg, paddingBottom: Spacing.sm,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
+    padding: Spacing.lg, paddingBottom: Spacing.sm, marginBottom: Spacing.md
   },
-  title: { ...Typography.heading, color: Colors.textPrimary },
+  greeting: { ...Typography.body, color: Colors.textSecondary },
+  title: { ...Typography.heading, color: Colors.textPrimary, marginTop: 4 },
   dateLabel: { ...Typography.caption, color: Colors.textTertiary, marginTop: 2 },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: { ...Typography.body, color: Colors.textInverse, fontWeight: '700' },
   pendingBadge: {
     backgroundColor: '#fef3c7', borderRadius: Radius.full,
-    paddingHorizontal: 10, paddingVertical: 4,
+    paddingHorizontal: 10, paddingVertical: 6,
     borderWidth: 1, borderColor: '#fbbf24',
   },
   pendingBadgeText: { fontSize: 12, fontWeight: '700', color: '#92400e' },
   addBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: Colors.accent, borderRadius: Radius.full,
-    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md, paddingVertical: 10,
   },
   addBtnText: { ...Typography.bodySmall, color: Colors.textInverse, fontWeight: '700' },
   linkBanner: {
@@ -296,8 +308,8 @@ const styles = StyleSheet.create({
   },
   cardTop: { padding: Spacing.md, gap: Spacing.sm },
   guestBlock: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  avatar: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontSize: 18, fontWeight: '800' },
+  cardAvatar: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  cardAvatarText: { fontSize: 18, fontWeight: '800' },
   guestName: { ...Typography.body, color: Colors.textPrimary, fontWeight: '700' },
   guestPhone: { ...Typography.caption, color: Colors.textTertiary },
   statusBadge: {

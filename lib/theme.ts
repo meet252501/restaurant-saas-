@@ -7,80 +7,84 @@ import { StyleSheet } from 'react-native';
 
 export const Colors = {
   // ── Base ────────────────────────────────────
-  background:      '#0b0f0b',   // near-black with green tint
-  surface:         '#121a12',   // dark green surface
-  surfaceElevated: '#1a251a',   // elevated card
-  surfaceBorder:   '#243024',   // subtle green border
+  background:      '#090B10',   // deep dark background
+  surface:         '#121620',   // elevated dark surface
+  surfaceElevated: '#1a202c',   // elevated card
+  surfaceBorder:   '#1F2433',   // subtle border
 
-  // ── Primary Accent — Apple Green ───────────
-  accent:       '#4ade80',      // vibrant leaf green
-  accentDark:   '#16a34a',      // deep forest green
-  accentLight:  '#86efac',      // mint highlight
-  accentDim:    'rgba(74,222,128,0.12)',
+  // ── Primary Accent — Neon Blue ───────────
+  accent:       '#00F0FF',      // vibrant neon blue
+  accentDark:   '#00B3CC',      // deep neon blue
+  accentLight:  '#80F8FF',      // bright highlight
+  accentDim:    'rgba(0,240,255,0.12)',
 
-  // ── Secondary Accent — Lime ─────────────────
-  lime:         '#a3e635',
-  limeDim:      'rgba(163,230,53,0.12)',
+  // ── Secondary Accent — Neon Purple ─────────────────
+  lime:         '#7000FF',
+  limeDim:      'rgba(112,0,255,0.12)',
 
   // ── Text ────────────────────────────────────
-  textPrimary:   '#f0fdf4',     // near-white with green tint
-  textSecondary: '#86efac',     // soft green
-  textTertiary:  '#4b7a5a',     // muted green
-  textInverse:   '#0b120b',
+  textPrimary:   '#FFFFFF',
+  textSecondary: '#8A94A6',
+  textTertiary:  '#5C677D',
+  textInverse:   '#090B10',
 
   // ── Semantic Status — Tables ────────────────
-  available:    '#4ade80',
-  availableDim: 'rgba(74,222,128,0.15)',
-  occupied:     '#f87171',
-  occupiedDim:  'rgba(248,113,113,0.15)',
-  reserved:     '#facc15',
-  reservedDim:  'rgba(250,204,21,0.15)',
-  cleaning:     '#a78bfa',
-  cleaningDim:  'rgba(167,139,250,0.15)',
+  available:    '#00FF66',
+  availableDim: 'rgba(0,255,102,0.15)',
+  occupied:     '#FF3366',
+  occupiedDim:  'rgba(255,51,102,0.15)',
+  reserved:     '#FFB800',
+  reservedDim:  'rgba(255,184,0,0.15)',
+  cleaning:     '#7000FF',
+  cleaningDim:  'rgba(112,0,255,0.15)',
   blocked:      '#374151',
   blockedDim:   'rgba(55,65,81,0.15)',
 
   // ── Semantic Status — Bookings ──────────────
-  pending:      '#60a5fa',
-  pendingDim:   'rgba(96,165,250,0.15)',
-  confirmed:    '#4ade80',
-  confirmedDim: 'rgba(74,222,128,0.15)',
-  checkedIn:    '#34d399',
-  checkedInDim: 'rgba(52,211,153,0.15)',
-  completed:    '#6b7280',
-  completedDim: 'rgba(107,114,128,0.15)',
+  pending:      '#00F0FF',
+  pendingDim:   'rgba(0,240,255,0.15)',
+  confirmed:    '#00FF66',
+  confirmedDim: 'rgba(0,255,102,0.15)',
+  checkedIn:    '#00CC52',
+  checkedInDim: 'rgba(0,204,82,0.15)',
+  completed:    '#8A94A6',
+  completedDim: 'rgba(138,148,166,0.15)',
   cancelled:    '#4b5563',
   cancelledDim: 'rgba(75,85,99,0.15)',
-  noShow:       '#f87171',
-  noShowDim:    'rgba(248,113,113,0.15)',
+  noShow:       '#FF3366',
+  noShowDim:    'rgba(255,51,102,0.15)',
 
   // ── Delivery Status ─────────────────────────
-  deliveryPending:    '#facc15',
-  deliveryPreparing:  '#60a5fa',
-  deliveryDispatched: '#a78bfa',
-  deliveryDelivered:  '#4ade80',
+  deliveryPending:    '#FFB800',
+  deliveryPreparing:  '#00F0FF',
+  deliveryDispatched: '#7000FF',
+  deliveryDelivered:  '#00FF66',
 
   // ── Communication ───────────────────────────
-  whatsapp:    '#25d366',
-  whatsappDim: 'rgba(37,211,102,0.15)',
-  phone:       '#60a5fa',
-  phoneDim:    'rgba(96,165,250,0.15)',
-  sms:         '#facc15',
-  smsDim:      'rgba(250,204,21,0.15)',
+  whatsapp:    '#00FF66',
+  whatsappDim: 'rgba(0,255,102,0.15)',
+  phone:       '#00F0FF',
+  phoneDim:    'rgba(0,240,255,0.15)',
+  sms:         '#FFB800',
+  smsDim:      'rgba(255,184,0,0.15)',
 
   // ── AI ─────────────────────────────────────
-  ai:              '#c084fc',
-  aiGradientStart: '#7c3aed',
-  aiGradientEnd:   '#4f46e5',
-  aiDim:           'rgba(192,132,252,0.15)',
+  ai:              '#00F0FF',
+  aiGradientStart: '#7000FF',
+  aiGradientEnd:   '#00F0FF',
+  aiDim:           'rgba(0,240,255,0.15)',
+  aiGlass:         'rgba(112,0,255,0.25)',
 
   // ── Utility ─────────────────────────────────
-  error:       '#f87171',
-  success:     '#4ade80',
-  warning:     '#facc15',
-  info:        '#60a5fa',
-  overlay:     'rgba(0,0,0,0.7)',
+  error:       '#FF3366',
+  success:     '#00FF66',
+  warning:     '#FFB800',
+  info:        '#00F0FF',
+  overlay:     'rgba(9,11,16,0.8)',
   transparent: 'transparent',
+  surfaceGlass: 'rgba(18, 22, 32, 0.65)',
+  surfaceElevatedGlass: 'rgba(26, 32, 44, 0.75)',
+  accentPurple: '#7000FF',
 };
 
 export const TableStatusColors: Record<string, { bg: string; dim: string; label: string }> = {
@@ -141,12 +145,33 @@ export const Shadows = {
     shadowRadius: 16,
     elevation: 8,
   },
-  green: {
-    shadowColor: '#4ade80',
+  neon: {
+    shadowColor: '#00F0FF',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 5,
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  premium: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.6,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  glass: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 4,
+  },
+  green: {
+    shadowColor: '#00FF66',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 8,
   },
 };
 
