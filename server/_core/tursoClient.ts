@@ -4,8 +4,12 @@ import "dotenv/config";
 const url = process.env.TURSO_DATABASE_URL;
 const authToken = process.env.TURSO_AUTH_TOKEN;
 
-export const tursoClient = (url && authToken) 
-  ? createClient({ url, authToken }) 
+// Detect placeholder / example values and treat them as "not configured"
+const isPlaceholderUrl = !url || url.includes('your-db') || url === 'libsql://your-db-name.turso.io';
+const isPlaceholderToken = !authToken || authToken.startsWith('eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9...');
+
+export const tursoClient = (!isPlaceholderUrl && !isPlaceholderToken)
+  ? createClient({ url: url!, authToken: authToken! })
   : null;
 
 /**

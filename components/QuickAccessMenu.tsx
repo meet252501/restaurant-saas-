@@ -10,10 +10,12 @@ import { useRouter } from 'expo-router';
 import { Colors } from '../lib/theme';
 
 const MENU_ITEMS = [
-  { label: 'AI Assistant', icon: 'sparkles-outline', route: '/ai-assistant', color: Colors.accent },
-  { label: 'Analytics', icon: 'stats-chart-outline', route: '/analytics-dashboard', color: Colors.available },
-  { label: 'Delivery', icon: 'bicycle-outline', route: '/delivery', color: '#f97316' },
-  { label: 'Settings', icon: 'settings-outline', route: '/settings', color: Colors.textSecondary },
+  { label: 'Today',       icon: 'sunny-outline',       route: '/today',               color: '#facc15' },
+  { label: 'AI Assistant',icon: 'sparkles-outline',    route: '/ai-assistant',        color: Colors.accent },
+  { label: 'Delivery',    icon: 'bicycle-outline',     route: '/delivery',            color: '#f97316' },
+  { label: 'Reviews',     icon: 'star-outline',        route: '/reviews',             color: '#fbbf24' },
+  { label: 'Cloud Data',  icon: 'cloud-done-outline',  route: '/cloud-data',          color: Colors.accentPurple },
+  { label: 'Settings',    icon: 'settings-outline',    route: '/settings',            color: Colors.textSecondary },
 ];
 
 /** The app logo button — tap to open quick access menu */

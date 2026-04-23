@@ -277,14 +277,7 @@ export default function SettingsScreen() {
           <Text style={styles.hint}>💡 Your restaurant pays Twilio directly. You get amazing AI calling for free!</Text>
         </Section>
 
-        {/* ── FOOD DELIVERY INTEGRATIONS ── */}
-        <Section title="Food Delivery Integrations" icon="fast-food-outline">
-          <Field label="Zomato Restaurant ID" value={form.zomatoId} onChangeText={set('zomatoId')}
-            placeholder="e.g. ZOM-123456" icon="pizza-outline" />
-          <Field label="Swiggy Partner ID" value={form.swiggyId} onChangeText={set('swiggyId')}
-            placeholder="e.g. SWG-987654" icon="bicycle-outline" />
-          <Text style={styles.hint}>💡 Just enter your Partner IDs to automatically sync and track live delivery orders from Swiggy & Zomato!</Text>
-        </Section>
+
 
         {/* Save */}
         <Pressable
@@ -387,4 +380,20 @@ const styles = StyleSheet.create({
     marginTop: Spacing.sm,
   },
   saveBtnText: { ...Typography.subheading, color: Colors.textInverse, fontWeight: '700' },
+  guideBox: {
+    backgroundColor: Colors.surfaceElevated, borderRadius: Radius.md,
+    padding: Spacing.md, gap: 12, borderWidth: 1, borderColor: Colors.surfaceBorder,
+    marginBottom: Spacing.sm,
+  },
+  guideTitle: { ...Typography.caption, color: Colors.textSecondary, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 },
+  guideStep: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  guideNum: {
+    width: 24, height: 24, borderRadius: 12, backgroundColor: Colors.accent,
+    alignItems: 'center', justifyContent: 'center', marginTop: 2,
+  },
+  guideNumTxt: { color: '#000', fontWeight: '800', fontSize: 12 },
+  guideStepTitle: { ...Typography.bodySmall, color: Colors.textPrimary, fontWeight: '700' },
+  guideStepText: { ...Typography.caption, color: Colors.textSecondary, lineHeight: 18, marginTop: 2 },
+  guideLink: { color: Colors.accent, textDecorationLine: 'underline' },
+  guideCode: { color: Colors.accentPurple || Colors.accent, fontWeight: '700' },
 });

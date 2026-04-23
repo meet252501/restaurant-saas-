@@ -86,28 +86,33 @@ async function fetchGoogleReviews() {
 
 export const reviewsRouter = router({
   list: publicProcedure.query(async () => {
+    let dbFormattedReviews: any[] = [];
     const db = await getDb();
+    
     if (db) {
       const dbReviews = await db.select().from(reviews).orderBy(desc(reviews.createdAt)).limit(10);
       if (dbReviews.length > 0) {
-        return {
-          reviews: dbReviews.map(r => ({
-            authorName: r.authorName,
-            rating: r.rating,
-            text: r.text,
-            relativeTimeDescription: r.relativeTime,
-            profilePhotoUrl: null,
-            time: r.createdAt ? new Date(r.createdAt as unknown as string).getTime() : Date.now(),
-            isReplied: r.isReplied,
-            replyText: r.replyText,
-          })),
-          rating: 4.6,
-          totalRatings: 429 + dbReviews.length,
-          isSimulated: false,
-        };
+        dbFormattedReviews = dbReviews.map(r => ({
+          authorName: r.authorName,
+          rating: r.rating,
+          text: r.text,
+          relativeTimeDescription: r.relativeTime,
+          profilePhotoUrl: null,
+          time: r.createdAt ? new Date(r.createdAt as unknown as string).getTime() : Date.now(),
+          isReplied: r.isReplied,
+          replyText: r.replyText,
+        }));
       }
     }
-    return await fetchGoogleReviews();
+    
+    const googleData = await fetchGoogleReviews();
+    
+    return {
+      reviews: [...dbFormattedReviews, ...googleData.reviews],
+      rating: googleData.rating,
+      totalRatings: googleData.totalRatings + dbFormattedReviews.length,
+      isSimulated: googleData.isSimulated,
+    };
   }),
 
   submitReply: adminProcedure

@@ -116,7 +116,7 @@ export const AutomationService = {
         const recentlyDelivered = await db.select().from(deliveryOrders).where(
           and(
             eq(deliveryOrders.status, 'delivered'),
-            gte(deliveryOrders.createdAt, threeHoursAgo.toISOString())
+            sql`${deliveryOrders.createdAt} >= ${threeHoursAgo.toISOString()}`
           )
         );
         for (const order of recentlyDelivered) {

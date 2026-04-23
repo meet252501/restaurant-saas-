@@ -9,7 +9,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, Pressable, Image,
-  RefreshControl, Modal, Alert, ActivityIndicator,
+  RefreshControl, Modal, Alert, ActivityIndicator, useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -33,41 +33,43 @@ function TableCard({ table, onPress, onEdit, onRemove, onQR }: {
 }) {
   const sc = TableStatusColors[table.status] || TableStatusColors.available;
   return (
-    <Pressable
-      style={[styles.card, { borderColor: sc.bg }]}
-      onPress={() => onPress(table)}
-    >
-      {/* Status dot */}
-      <View style={[styles.statusDot, { backgroundColor: sc.bg }]} />
-
-      {/* Table number + capacity */}
-      <Text style={styles.tableNum}>{table.tableNumber}</Text>
-      <Text style={styles.tableLabel}>TABLE</Text>
-      <View style={styles.cardMeta}>
-        <Ionicons name="people-outline" size={11} color={Colors.textTertiary} />
-        <Text style={styles.metaText}>{table.capacity}</Text>
+    <Pressable style={[styles.card, Shadows.sm]} onPress={() => onPress(table)}>
+      {/* Top accent line representing status */}
+      <View style={[styles.cardTopAccent, { backgroundColor: sc.bg }]} />
+      
+      <View style={styles.cardHeader}>
+        <View>
+          <Text style={styles.tableLabel}>TABLE</Text>
+          <Text style={styles.tableNum}>{table.tableNumber}</Text>
+        </View>
+        <View style={styles.cardMeta}>
+          <Ionicons name="people" size={14} color={Colors.textTertiary} />
+          <Text style={styles.metaText}>{table.capacity}</Text>
+        </View>
       </View>
 
       {/* Zone tag */}
       {table.zone && (
-        <Text style={styles.zoneTag}>{table.zone}</Text>
+        <View style={styles.zoneRow}>
+          <Ionicons name="location-outline" size={12} color={Colors.textTertiary} />
+          <Text style={styles.zoneTag}>{table.zone}</Text>
+        </View>
       )}
 
       {/* Status badge */}
       <View style={[styles.badge, { backgroundColor: sc.dim }]}>
+        <View style={[styles.badgeDot, { backgroundColor: sc.bg }]} />
         <Text style={[styles.badgeText, { color: sc.bg }]}>{sc.label.toUpperCase()}</Text>
       </View>
 
-      {/* Edit / Remove / QR icons */}
+      {/* Actions */}
       <View style={styles.cardActions}>
-        <Pressable onPress={() => onQR(table)} hitSlop={8}>
-          <Ionicons name="qr-code-outline" size={14} color={Colors.textTertiary} />
+        <Pressable style={styles.actionBtn} onPress={() => onEdit(table)} hitSlop={8}>
+          <Ionicons name="pencil" size={16} color={Colors.textSecondary} />
         </Pressable>
-        <Pressable onPress={() => onEdit(table)} hitSlop={8}>
-          <Ionicons name="pencil-outline" size={14} color={Colors.textTertiary} />
-        </Pressable>
-        <Pressable onPress={() => onRemove(table)} hitSlop={8}>
-          <Ionicons name="trash-outline" size={14} color="#ef4444" />
+        <View style={{flex: 1}} />
+        <Pressable style={styles.actionBtn} onPress={() => onRemove(table)} hitSlop={8}>
+          <Ionicons name="trash" size={16} color="#ef4444" />
         </Pressable>
       </View>
     </Pressable>
@@ -220,9 +222,17 @@ export default function TablesScreen() {
     );
   }
 
+  const { width } = useWindowDimensions();
+  const isDesktop = width > 768;
+  const padding = 20; // Spacing.lg
+  const gap = 16;     // Spacing.md
+  
+  // Perfect 2-column on mobile, fixed width on desktop
+  const cardWidth = isDesktop ? 160 : (width - padding * 2 - gap) / 2;
+
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.content}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={[styles.content, { paddingBottom: 100 }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.accent} colors={[Colors.accent]} />}
         showsVerticalScrollIndicator={false}>
 
@@ -237,7 +247,6 @@ export default function TablesScreen() {
               <Ionicons name="add" size={20} color="#fff" />
               <Text style={styles.addFabText}>Add Table</Text>
             </Pressable>
-            <QuickAccessButton />
           </View>
         </View>
 
@@ -265,17 +274,18 @@ export default function TablesScreen() {
         {/* Table Grid */}
         <View style={styles.grid}>
           {filtered.map(table => (
-            <TableCard
-              key={table.id}
-              table={table}
-              onPress={setStatusModal}
-              onEdit={openEdit}
-              onRemove={handleRemove}
-              onQR={() => router.push(`/menu/${table.id}`)}
-            />
+            <View key={table.id} style={{ width: cardWidth }}>
+              <TableCard
+                table={table}
+                onPress={setStatusModal}
+                onEdit={openEdit}
+                onRemove={handleRemove}
+                onQR={() => router.push(`/menu/${table.id}`)}
+              />
+            </View>
           ))}
           {/* Ghost "Add Table" card */}
-          <Pressable style={styles.ghostCard} onPress={() => { setNewCapacity(4); setNewZone('Indoor'); setAddModal(true); }}>
+          <Pressable style={[styles.ghostCard, { width: cardWidth }]} onPress={() => { setNewCapacity(4); setNewZone('Indoor'); setAddModal(true); }}>
             <Ionicons name="add-circle-outline" size={28} color={Colors.accent} />
             <Text style={styles.ghostText}>Add{'\n'}Table</Text>
           </Pressable>
@@ -407,19 +417,38 @@ const styles = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md },
   // ── Card ──
   card: {
-    width: 155, minHeight: 160,
-    backgroundColor: Colors.surface, borderRadius: Radius.lg, padding: Spacing.md,
-    borderWidth: 1.5, gap: 2, position: 'relative',
+    backgroundColor: Colors.surfaceElevated, 
+    borderRadius: Radius.lg, 
+    padding: Spacing.md,
+    position: 'relative',
+    overflow: 'hidden',
+    minHeight: 140,
+    justifyContent: 'space-between',
   },
-  statusDot: { width: 8, height: 8, borderRadius: 4, marginBottom: 4 },
-  tableNum: { fontSize: 36, fontWeight: '900', color: Colors.textPrimary, lineHeight: 40 },
-  tableLabel: { fontSize: 10, fontWeight: '700', color: Colors.textTertiary, letterSpacing: 1.5 },
-  cardMeta: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
-  metaText: { ...Typography.caption, color: Colors.textTertiary },
-  zoneTag: { ...Typography.caption, color: Colors.textTertiary, fontStyle: 'italic', marginTop: 2 },
-  badge: { marginTop: 'auto' as any, alignSelf: 'flex-start', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
-  badgeText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
-  cardActions: { flexDirection: 'row', gap: 10, marginTop: 6 },
+  cardTopAccent: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 4,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginTop: 4,
+  },
+  tableNum: { fontSize: 28, fontWeight: '800', color: Colors.textPrimary, marginTop: -2 },
+  tableLabel: { fontSize: 11, fontWeight: '700', color: Colors.textTertiary, letterSpacing: 1 },
+  cardMeta: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.surface, paddingHorizontal: 8, paddingVertical: 4, borderRadius: Radius.full },
+  metaText: { fontSize: 13, fontWeight: '600', color: Colors.textSecondary },
+  zoneRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 12 },
+  zoneTag: { fontSize: 12, color: Colors.textTertiary, fontWeight: '500' },
+  badge: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12, alignSelf: 'flex-start', borderRadius: Radius.full, paddingHorizontal: 8, paddingVertical: 4 },
+  badgeDot: { width: 6, height: 6, borderRadius: 3 },
+  badgeText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+  cardActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder },
+  actionBtn: { padding: 4 },
   // Ghost card
   ghostCard: {
     width: 155, minHeight: 160,

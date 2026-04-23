@@ -7,6 +7,7 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { trpc } from '../../lib/trpc';
 import { Colors, Typography } from '../../lib/theme';
+import * as XLSX from 'xlsx';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -47,18 +48,83 @@ function getDayLabel(iso: string) {
   return '3 Days Ago';
 }
 
-function downloadJSON(data: object, filename: string) {
-  if (Platform.OS === 'web') {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  } else {
-    Alert.alert('Download', 'File sharing is available on web. On mobile, data is shown in full above.');
+// ─── Export Helpers ───────────────────────────────────────────────────────────
+
+type ExportFormat = 'xlsx' | 'csv';
+
+/** Flatten a ParsedEntry into a table row */
+function flattenEntry(e: ParsedEntry, restaurantId: string) {
+  const d = e.parsedData;
+  return {
+    'Record ID': e.id,
+    'Restaurant ID': restaurantId,
+    'Type': e.dataType === 'bookings' ? 'Booking' : 'Delivery',
+    'Guest / Customer': d.guestName || d.customerName || d.guest_name || d.name || '—',
+    'Booking Date': d.bookingDate || d.date || '—',
+    'Booking Time': d.bookingTime || d.time || '—',
+    'Party Size': d.partySize || d.party_size || '—',
+    'Status': d.status || '—',
+    'Platform': d.platform || '—',
+    'Amount (₹)': d.totalAmount || d.amount || '—',
+    'Table': d.tableNumber || d.table || '—',
+    'Phone': d.phone || d.guestPhone || '—',
+    'Notes': d.notes || d.specialRequests || '—',
+    'Archived At': new Date(e.archivedAt).toLocaleString('en-IN'),
+  };
+}
+
+function triggerDownload(blob: Blob, filename: string) {
+  if (Platform.OS !== 'web') {
+    Alert.alert('Export', 'Download is available on the web version.');
+    return;
   }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportAsExcel(items: ParsedEntry[], restaurantId: string, filename: string) {
+  const rows = items.map(e => flattenEntry(e, restaurantId));
+
+  // Build worksheet with a title row
+  const ws = XLSX.utils.json_to_sheet([]);
+
+  // Title row
+  XLSX.utils.sheet_add_aoa(ws, [
+    [`TableBook Cloud Export — ${restaurantId}`],
+    [`Exported: ${new Date().toLocaleString('en-IN')}   |   Records: ${rows.length}`],
+    [], // blank separator
+  ]);
+
+  // Data table (starts at row 4)
+  XLSX.utils.sheet_add_json(ws, rows, { origin: 'A4', skipHeader: false });
+
+  // Column widths
+  ws['!cols'] = [
+    { wch: 18 }, { wch: 16 }, { wch: 10 }, { wch: 22 },
+    { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 12 },
+    { wch: 12 }, { wch: 12 }, { wch: 8  }, { wch: 14 },
+    { wch: 24 }, { wch: 22 },
+  ];
+
+  // Merge title cells A1:N1
+  ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 13 } }];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Cloud Archive');
+
+  const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  triggerDownload(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), filename);
+}
+
+function exportAsCSV(items: ParsedEntry[], restaurantId: string, filename: string) {
+  const rows = items.map(e => flattenEntry(e, restaurantId));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const csv = XLSX.utils.sheet_to_csv(ws);
+  triggerDownload(new Blob([csv], { type: 'text/csv;charset=utf-8;' }), filename);
 }
 
 // ─── Main Screen ─────────────────────────────────────────────────────────────
@@ -68,6 +134,7 @@ export default function CloudDataScreen() {
   const [inputId, setInputId] = useState('res_default');
   const [selectedType, setSelectedType] = useState<'all' | 'bookings' | 'deliveryOrders'>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('xlsx');
 
   const { data: rawData, isLoading, error, refetch, isFetching } = trpc.cloudData.getRecent.useQuery(
     { restaurantId },
@@ -75,8 +142,8 @@ export default function CloudDataScreen() {
   );
 
   const entries: ParsedEntry[] = useMemo(() => {
-    if (!rawData) return [];
-    return rawData.map((entry: ArchiveEntry) => {
+    if (!rawData?.archives) return [];
+    return rawData.archives.map((entry: ArchiveEntry) => {
       let parsedData: Record<string, any> = {};
       try { parsedData = JSON.parse(entry.dataJson); } catch {}
       return { ...entry, parsedData };
@@ -100,26 +167,20 @@ export default function CloudDataScreen() {
 
   const dayOrder = ['Today', 'Yesterday', '2 Days Ago', '3 Days Ago'];
 
-  const handleDownloadAll = () => {
-    const payload = {
-      restaurantId,
-      exportedAt: new Date().toISOString(),
-      totalRecords: filtered.length,
-      data: filtered.map(e => ({ type: e.dataType, archivedAt: e.archivedAt, ...e.parsedData })),
-    };
-    downloadJSON(payload, `tablebook_cloud_${restaurantId}_${Date.now()}.json`);
+  const doExport = (items: ParsedEntry[], baseName: string) => {
+    const ext = exportFormat === 'xlsx' ? 'xlsx' : 'csv';
+    const filename = `${baseName}_${Date.now()}.${ext}`;
+    if (exportFormat === 'xlsx') {
+      exportAsExcel(items, restaurantId, filename);
+    } else {
+      exportAsCSV(items, restaurantId, filename);
+    }
   };
 
-  const handleDownloadDay = (day: string, items: ParsedEntry[]) => {
-    const payload = {
-      restaurantId,
-      day,
-      exportedAt: new Date().toISOString(),
-      totalRecords: items.length,
-      data: items.map(e => ({ type: e.dataType, archivedAt: e.archivedAt, ...e.parsedData })),
-    };
-    downloadJSON(payload, `tablebook_${day.replace(/ /g, '_').toLowerCase()}_${Date.now()}.json`);
-  };
+  const handleDownloadAll = () => doExport(filtered, `tablebook_cloud_${restaurantId}`);
+
+  const handleDownloadDay = (day: string, items: ParsedEntry[]) =>
+    doExport(items, `tablebook_${day.replace(/ /g, '_').toLowerCase()}`);
 
   return (
     <View style={styles.root}>
@@ -181,6 +242,23 @@ export default function CloudDataScreen() {
       </LinearGradient>
 
       <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 60 }}>
+        {/* Export Format Toggle */}
+        <View style={styles.formatBar}>
+          <Feather name="file-text" size={13} color="#64748b" />
+          <Text style={styles.formatLabel}>Export as:</Text>
+          {(['xlsx', 'csv'] as const).map(fmt => (
+            <Pressable
+              key={fmt}
+              style={[styles.fmtBtn, exportFormat === fmt && styles.fmtBtnActive]}
+              onPress={() => setExportFormat(fmt)}
+            >
+              <Text style={[styles.fmtBtnText, exportFormat === fmt && styles.fmtBtnTextActive]}>
+                {fmt === 'xlsx' ? '📊 Excel (.xlsx)' : '📄 CSV (.csv)'}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
         {/* Stats Banner */}
         <View style={styles.statsBanner}>
           <View style={styles.statCard}>
@@ -394,6 +472,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#4338ca', paddingHorizontal: 14, paddingVertical: 12, borderRadius: 12
   },
   downloadAllText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+
+  /* Format toggle */
+  formatBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginHorizontal: 20, marginTop: 16, flexWrap: 'wrap',
+  },
+  formatLabel: { color: '#64748b', fontSize: 12, marginLeft: 4 },
+  fmtBtn: {
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20,
+    borderWidth: 1, borderColor: '#1e293b', backgroundColor: '#0f172a',
+  },
+  fmtBtnActive: { backgroundColor: '#134e4a', borderColor: '#10b981' },
+  fmtBtnText: { color: '#64748b', fontSize: 12 },
+  fmtBtnTextActive: { color: '#34d399', fontWeight: '700' },
 
   /* Loading / empty / error */
   centered: { alignItems: 'center', paddingVertical: 64, paddingHorizontal: 32 },

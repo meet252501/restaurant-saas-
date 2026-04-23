@@ -36,11 +36,15 @@ export default function DashboardScreen() {
   // ── Revenue Chart Data (last 7 days) ────────────────
   const chartData = useMemo(() => {
     if (!trends || trends.length === 0) {
-      return Array.from({ length: 7 }, (_, i) => ({
-        day: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i],
-        revenue: [4200, 3800, 5100, 4700, 6200, 8500, 7300][i],
-        bookings: [12, 10, 15, 13, 18, 24, 20][i],
-      }));
+      return Array.from({ length: 7 }, (_, i) => {
+        const d = new Date();
+        d.setDate(d.getDate() - (6 - i));
+        return {
+          day: d.toLocaleDateString('en-IN', { weekday: 'short' }),
+          revenue: 0,
+          bookings: 0,
+        };
+      });
     }
     return trends.slice(-7).map((d: any) => ({
       day: new Date(d.date).toLocaleDateString('en-IN', { weekday: 'short' }),
@@ -55,12 +59,7 @@ export default function DashboardScreen() {
   // ── Recent Activity ────────────────────────────────
   const recentActivity = useMemo(() => {
     if (!bookingsList || bookingsList.length === 0) {
-      return [
-        { id: 'TBL-12', action: 'Seated • 4 pax', time: '2m', color: Colors.accent },
-        { id: 'ONL-88', action: 'Confirmed • ₹1,400', time: '12m', color: Colors.available },
-        { id: 'TBL-04', action: 'Completed • ₹3,200', time: '18m', color: Colors.textTertiary },
-        { id: 'TBL-09', action: 'No Show', time: '21m', color: Colors.error },
-      ];
+      return [];
     }
     const statusColors: Record<string, string> = {
       confirmed: Colors.accent, seated: Colors.available,
@@ -95,11 +94,7 @@ export default function DashboardScreen() {
     ? revenueData.revenueBySource.map((src: any) => ({
         source: src.source, revenue: Number(src.revenue), pct: parseFloat(src.percentage || '0'),
       }))
-    : [
-        { source: 'Cash', revenue: 22000, pct: 54 },
-        { source: 'Online', revenue: 12000, pct: 29 },
-        { source: 'Delivery', revenue: 7000, pct: 17 },
-      ];
+    : [];
   const srcColors = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444'];
 
   // ── Animations ─────────────────────────────────────
@@ -161,20 +156,6 @@ export default function DashboardScreen() {
 
           {/* ── Quick Actions Row ── */}
           <View style={{ flexDirection: 'row', gap: 10 }}>
-            {/* Walk-in CTA */}
-            <Pressable
-              style={styles.walkinBtn}
-              onPress={() => router.push('/walkin')}
-            >
-              <View style={styles.walkinIconBox}>
-                <Ionicons name="walk" size={22} color="#fff" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.walkinTitle}>Seat Walk-in</Text>
-                <Text style={styles.walkinSub}>Instant guest entry · No reservation needed</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="#fff" style={{ opacity: 0.7 }} />
-            </Pressable>
 
             {/* New Booking CTA */}
             <Pressable
@@ -223,12 +204,13 @@ export default function DashboardScreen() {
                 const barArea = chartH - labelArea;
                 return (
                   <View style={{ height: chartH, flexDirection: 'row' }}>
-                    {/* Y Axis */}
-                    <View style={{ width: isDesktop ? 50 : 40, justifyContent: 'space-between', paddingBottom: labelArea }}>
-                      <Text style={styles.yTxt}>₹{(maxRevenue / 1000).toFixed(0)}k</Text>
-                      <Text style={styles.yTxt}>₹{(maxRevenue / 2000).toFixed(0)}k</Text>
+                    {/* Y Axis (Revenue) */}
+                    <View style={{ width: isDesktop ? 45 : 35, justifyContent: 'space-between', paddingBottom: labelArea }}>
+                      <Text style={styles.yTxt}>₹{(maxRevenue / 1000).toFixed(1)}k</Text>
+                      <Text style={styles.yTxt}>₹{(maxRevenue / 2000).toFixed(1)}k</Text>
                       <Text style={styles.yTxt}>₹0</Text>
                     </View>
+                    
                     {/* Bars */}
                     <View style={{ flex: 1, position: 'relative' }}>
                       {/* Grid lines */}
@@ -242,22 +224,29 @@ export default function DashboardScreen() {
                           const bookH = Math.max((d.bookings / maxBookings) * barArea, 4);
                           return (
                             <View key={i} style={{ flex: 1, alignItems: 'center' }}>
-                              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 2 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 3 }}>
                                 <LinearGradient
-                                  colors={[Colors.accent, Colors.accent + '60']}
-                                  style={{ width: isDesktop ? 16 : 12, height: revH, borderRadius: 4 }}
+                                  colors={[Colors.accent, Colors.accent + '40']}
+                                  style={{ width: isDesktop ? 16 : 12, height: revH, borderTopLeftRadius: 4, borderTopRightRadius: 4 }}
                                 />
                                 <LinearGradient
-                                  colors={[Colors.accentPurple, Colors.accentPurple + '50']}
-                                  style={{ width: isDesktop ? 10 : 7, height: bookH, borderRadius: 4, opacity: 0.8 }}
+                                  colors={[Colors.accentPurple, Colors.accentPurple + '40']}
+                                  style={{ width: isDesktop ? 10 : 7, height: bookH, borderTopLeftRadius: 4, borderTopRightRadius: 4, opacity: 0.9 }}
                                 />
                               </View>
-                              <Text style={{ color: Colors.textTertiary, fontSize: 9, marginTop: 4 }}>{d.day}</Text>
+                              <Text style={{ color: Colors.textTertiary, fontSize: 9, marginTop: 6 }}>{d.day}</Text>
                               <Text style={{ color: Colors.textSecondary, fontSize: 8, fontWeight: '600' }}>₹{(d.revenue / 1000).toFixed(1)}k</Text>
                             </View>
                           );
                         })}
                       </View>
+                    </View>
+
+                    {/* Y Axis (Bookings) - Right side */}
+                    <View style={{ width: isDesktop ? 30 : 25, justifyContent: 'space-between', paddingBottom: labelArea, alignItems: 'flex-end' }}>
+                      <Text style={[styles.yTxt, { color: Colors.accentPurple }]}>{maxBookings}</Text>
+                      <Text style={[styles.yTxt, { color: Colors.accentPurple }]}>{Math.floor(maxBookings / 2)}</Text>
+                      <Text style={[styles.yTxt, { color: Colors.accentPurple }]}>0</Text>
                     </View>
                   </View>
                 );

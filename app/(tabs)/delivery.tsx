@@ -9,6 +9,7 @@ import { trpc } from '../../lib/trpc';
 import { Colors, Spacing, Typography, Radius, Shadows, appStyles } from '../../lib/theme';
 import { KOTPreview } from '../../components/KOTPreview';
 import Animated, { FadeInUp, FadeInRight } from 'react-native-reanimated';
+import { useRouter } from 'expo-router';
 
 // ── Live Activity Pipeline ──────────────────────────────────────────────────
 const PIPELINE_STEPS = [
@@ -94,6 +95,7 @@ const pb = StyleSheet.create({
 
 // ── Main Screen ────────────────────────────────────────────────────────────
 export default function DeliveryScreen() {
+  const router = useRouter();
   const trpcUtils = trpc.useUtils();
   const { data: liveData, isLoading, refetch } = trpc.delivery.today.useQuery(undefined, { refetchInterval: 10000 });
 
@@ -172,6 +174,26 @@ export default function DeliveryScreen() {
             <QuickAccessButton />
           </View>
         </Animated.View>
+
+        {/* ── Setup Integration Banner ─────────────── */}
+        {!liveData?.isSimulated === false && (
+          <TouchableOpacity
+            style={styles.setupBanner}
+            onPress={() => router.push('/delivery-setup' as any)}
+            activeOpacity={0.85}
+          >
+            <View style={styles.setupBannerLeft}>
+              <View style={styles.setupIcon}>
+                <Ionicons name="link-outline" size={16} color={Colors.accent} />
+              </View>
+              <View>
+                <Text style={styles.setupBannerTitle}>Connect Live Orders</Text>
+                <Text style={styles.setupBannerSub}>Set up Zomato & Swiggy integration →</Text>
+              </View>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={Colors.textTertiary} />
+          </TouchableOpacity>
+        )}
 
         {/* ── Summary Row ────────────────────────────── */}
         <View style={styles.summaryRow}>
@@ -370,6 +392,13 @@ const styles = StyleSheet.create({
   emptyBox:     { alignItems: 'center', paddingVertical: 60, gap: Spacing.sm },
   emptyText:    { ...Typography.subheading, color: Colors.textTertiary },
   emptySubtext: { ...Typography.bodySmall, color: Colors.textTertiary },
+
+  // Setup Integration Banner
+  setupBanner:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.surface, borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.lg, borderWidth: 1, borderColor: Colors.accent + '30' },
+  setupBannerLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  setupIcon:       { width: 34, height: 34, borderRadius: 10, backgroundColor: Colors.accentDim, alignItems: 'center', justifyContent: 'center' },
+  setupBannerTitle:{ ...Typography.bodySmall, color: Colors.textPrimary, fontWeight: '700' },
+  setupBannerSub:  { ...Typography.caption, color: Colors.accent, marginTop: 2 },
 
   // Manual bill
   manualBillBox:     { backgroundColor: Colors.surface, borderRadius: Radius.xl, padding: Spacing.lg, borderWidth: 1, borderColor: Colors.surfaceBorder, marginTop: Spacing.md },
