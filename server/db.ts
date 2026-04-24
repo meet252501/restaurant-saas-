@@ -3,8 +3,13 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { drizzle as drizzleLibsql } from 'drizzle-orm/libsql';
 import { createClient } from '@libsql/client';
 import * as schema from '../drizzle/schema';
-import path from 'path';
+import { fileURLToPath } from 'url';
+import path, { dirname } from 'path';
 import dotenv from 'dotenv';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
 dotenv.config();
 
 /**
