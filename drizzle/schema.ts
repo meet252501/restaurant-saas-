@@ -16,8 +16,10 @@ export const users = sqliteTable('users', {
   pinCode:      text('pin_code'),          // Hashed POS login PIN
   loginMethod:  text('login_method').default('oauth'),
   role:         text('role').$type<'owner' | 'manager' | 'host' | 'waiter'>().default('waiter'),
-  lastSignedIn: text('last_signed_in'),    // ISO string
-  createdAt:    text('created_at'),        // ISO string
+  lastSignedIn:   text('last_signed_in'),    // ISO string
+  failedAttempts: integer('failed_attempts').default(0),
+  lockoutUntil:   text('lockout_until'),     // ISO string
+  createdAt:      text('created_at'),        // ISO string
 });
 export type User = InferSelectModel<typeof users>;
 export type InsertUser = InferInsertModel<typeof users>;

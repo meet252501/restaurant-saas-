@@ -74,23 +74,34 @@ export const menuRouter = router({
 
   // Protected: get full menu with unavailable items (for owners)
   getAll: protectedProcedure
-    .input(z.object({ restaurantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx }) => {
       const db = await getDb();
+      const restaurantId = ctx.user.restaurantId;
       if (db) {
-        const items = await db.select().from(menuItems).where(eq(menuItems.restaurantId, input.restaurantId));
+        const items = await db.select().from(menuItems).where(eq(menuItems.restaurantId, restaurantId));
         if (items.length > 0) return items;
       }
-      return LIVE_MENU.filter(m => m.restaurantId === input.restaurantId);
+      return LIVE_MENU.filter(m => m.restaurantId === restaurantId);
     }),
 
   // Admin: toggle availability
   toggleAvailability: adminProcedure
     .input(z.object({ itemId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
+      const restaurantId = ctx.user.restaurantId;
       if (db) {
-        const item = await db.select().from(menuItems).where(eq(menuItems.id, input.itemId)).limit(1);
+        const item = await db
+          .select()
+          .from(menuItems)
+          .where(
+            and(
+              eq(menuItems.id, input.itemId),
+              eq(menuItems.restaurantId, restaurantId)
+            )
+          )
+          .limit(1);
+          
         if (item.length > 0) {
           const newStatus = !item[0].isAvailable;
           await db.update(menuItems).set({ isAvailable: newStatus }).where(eq(menuItems.id, input.itemId));
@@ -99,16 +110,15 @@ export const menuRouter = router({
       }
       
       LIVE_MENU = LIVE_MENU.map(m =>
-        m.id === input.itemId ? { ...m, isAvailable: !m.isAvailable } : m
+        (m.id === input.itemId && m.restaurantId === restaurantId) ? { ...m, isAvailable: !m.isAvailable } : m
       );
-      const item = LIVE_MENU.find(m => m.id === input.itemId);
+      const item = LIVE_MENU.find(m => m.id === input.itemId && m.restaurantId === restaurantId);
       return { success: true, isAvailable: item?.isAvailable };
     }),
 
   // Admin: add item
   addItem: adminProcedure
     .input(z.object({
-      restaurantId: z.string(),
       category: z.enum(["starters", "mains", "breads", "rice", "desserts", "drinks", "combos"]),
       name: z.string(),
       description: z.string(),
@@ -116,13 +126,14 @@ export const menuRouter = router({
       foodType: z.enum(["veg", "non-veg", "vegan"]),
       isSpecial: z.boolean().default(false),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const id = `mi_${Date.now()}`;
       const db = await getDb();
+      const restaurantId = ctx.user.restaurantId;
       if (db) {
         await db.insert(menuItems).values({
           id,
-          restaurantId: input.restaurantId,
+          restaurantId,
           category: input.category,
           name: input.name,
           description: input.description,
@@ -135,6 +146,7 @@ export const menuRouter = router({
 
       const newItem: MenuItem = {
         id,
+        restaurantId,
         isAvailable: true,
         ...input,
       };
@@ -145,25 +157,42 @@ export const menuRouter = router({
   // Admin: remove item
   removeItem: adminProcedure
     .input(z.object({ itemId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
+      const restaurantId = ctx.user.restaurantId;
       if (db) {
-        await db.delete(menuItems).where(eq(menuItems.id, input.itemId));
+        await db
+          .delete(menuItems)
+          .where(
+            and(
+              eq(menuItems.id, input.itemId),
+              eq(menuItems.restaurantId, restaurantId)
+            )
+          );
       }
-      LIVE_MENU = LIVE_MENU.filter(m => m.id !== input.itemId);
+      LIVE_MENU = LIVE_MENU.filter(m => !(m.id === input.itemId && m.restaurantId === restaurantId));
       return { success: true };
     }),
 
   // Admin: update price
   updatePrice: adminProcedure
     .input(z.object({ itemId: z.string(), price: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
+      const restaurantId = ctx.user.restaurantId;
       if (db) {
-        await db.update(menuItems).set({ price: input.price }).where(eq(menuItems.id, input.itemId));
+        await db
+          .update(menuItems)
+          .set({ price: input.price })
+          .where(
+            and(
+              eq(menuItems.id, input.itemId),
+              eq(menuItems.restaurantId, restaurantId)
+            )
+          );
       }
       LIVE_MENU = LIVE_MENU.map(m =>
-        m.id === input.itemId ? { ...m, price: input.price } : m
+        (m.id === input.itemId && m.restaurantId === restaurantId) ? { ...m, price: input.price } : m
       );
       return { success: true };
     }),

@@ -23,11 +23,11 @@ export const restaurantRouter = router({
       return result[0] || null;
     }),
 
-  info: publicProcedure
-    .query(async () => {
+  info: protectedProcedure
+    .query(async ({ ctx }) => {
       const db = await getDb();
       if (!db) return null;
-      const result = await db.select().from(restaurants).limit(1);
+      const result = await db.select().from(restaurants).where(eq(restaurants.id, ctx.user.restaurantId)).limit(1);
       return result[0] || null;
     }),
 
@@ -49,15 +49,13 @@ export const restaurantRouter = router({
       twilioToken: z.union([z.literal(''), z.string().length(32, "Twilio Auth Token must be 32 characters")]).optional(),
       twilioPhone: z.union([z.literal(''), z.string().regex(/^\+[1-9]\d{1,14}$/, "Invalid Twilio Phone Number")]).optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database not available");
       
-      const res = await db.select().from(restaurants).limit(1);
-      const restaurant = res[0];
-      if (!restaurant) throw new Error("Restaurant not found");
+      const restaurantId = ctx.user.restaurantId;
 
-      await db.update(restaurants).set(input).where(eq(restaurants.id, restaurant.id));
+      await db.update(restaurants).set(input).where(eq(restaurants.id, restaurantId));
       return { success: true };
     }),
 });

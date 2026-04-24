@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { router, publicProcedure } from "./_core/trpc";
+import { router, publicProcedure, protectedProcedure } from "./_core/trpc";
 import { getDb } from "./db";
 import { bookings, customers } from "../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 // VoiceAIService removed. Using inline stub.
 const VoiceAIService = {
   initiateBookingConfirmation: async (opts: any) => {
@@ -12,14 +12,15 @@ const VoiceAIService = {
 };
 
 export const voiceRouter = router({
-  startBookingCall: publicProcedure
+  startBookingCall: protectedProcedure
     .input(z.object({ bookingId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
+      const restaurantId = ctx.user.restaurantId;
 
       // ── Mock Mode ──────────────────────────────────────────────────────────
       if (!db) {
-        console.log(`[VoiceAI] 🟡 Mock mode: simulating call for booking "${input.bookingId}"`);
+        console.log(`[VoiceAI] 🟡 Mock mode: simulating call for booking "${input.bookingId}" for ${restaurantId}`);
         const result = await VoiceAIService.initiateBookingConfirmation({
           to: "+919999999999",
           customerName: "Mock Customer",
@@ -41,7 +42,12 @@ export const voiceRouter = router({
         })
         .from(bookings)
         .innerJoin(customers, eq(bookings.customerId, customers.id))
-        .where(eq(bookings.id, input.bookingId))
+        .where(
+          and(
+            eq(bookings.id, input.bookingId),
+            eq(bookings.restaurantId, restaurantId)
+          )
+        )
         .limit(1);
 
       const b = bookingData[0];

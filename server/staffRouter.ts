@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "./_core/trpc";
+import { router, protectedProcedure, TRPCError } from "./_core/trpc";
 import { tables, bookings } from "../drizzle/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { db, isMockMode } from "./db";
@@ -19,8 +19,9 @@ export const staffRouter = router({
    * Shows all tables with their current status and next booking
    */
   getTableBoard: protectedProcedure
-    .input(z.object({ restaurantId: z.string(), date: z.string() }))
-    .query(async ({ input }) => {
+    .input(z.object({ date: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
       const isMock = isMockMode();
 
       let allTables = [];
@@ -28,7 +29,7 @@ export const staffRouter = router({
         allTables = await db
           .select()
           .from(tables)
-          .where(eq(tables.restaurantId, input.restaurantId));
+          .where(eq(tables.restaurantId, restaurantId));
       } catch (e) {
         console.warn("[DB] Table fetch failed, using mock data", e);
         allTables = MOCK_TABLES;
@@ -42,12 +43,12 @@ export const staffRouter = router({
           .from(bookings)
           .where(
             and(
-              eq(bookings.restaurantId, input.restaurantId),
+              eq(bookings.restaurantId, restaurantId),
               eq(bookings.bookingDate, input.date)
             )
           );
       } catch (e) {
-        dayBookings = MOCK_BOOKINGS.filter(b => b.bookingDate === input.date);
+        dayBookings = MOCK_BOOKINGS.filter(b => b.restaurantId === restaurantId && b.bookingDate === input.date);
       }
 
       // Enrich table data with booking information
@@ -79,31 +80,41 @@ export const staffRouter = router({
         duration: z.number().optional(), // Duration in minutes (for cleaning/blocking)
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
       const isMock = isMockMode();
-
+      
       if (isMock) {
-        const table = MOCK_TABLES.find(t => t.id === input.tableId);
-        if (table) {
-          table.status = input.status;
+        const table = MOCK_TABLES.find(t => t.id === input.tableId && t.restaurantId === restaurantId);
+        if (!table) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Table not found in mock data or access denied." });
+        }
+        table.status = input.status;
           // Auto-reset cleaning/blocked after duration
           if (input.duration && (input.status === 'cleaning' || input.status === 'blocked')) {
             setTimeout(() => {
               table.status = 'available';
             }, input.duration * 60 * 1000);
           }
-        }
         return { success: true, message: `Table status updated to ${input.status}` };
       }
 
       try {
-        await db
+        const result = await db
           .update(tables)
           .set({
             status: input.status,
-
           })
-          .where(eq(tables.id, input.tableId));
+          .where(
+            and(
+              eq(tables.id, input.tableId),
+              eq(tables.restaurantId, restaurantId)
+            )
+          );
+
+        if (result.changes === 0) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Table not found or access denied." });
+        }
 
         // If setting to cleaning/blocked, schedule auto-reset
         if (input.duration && (input.status === 'cleaning' || input.status === 'blocked')) {
@@ -111,7 +122,12 @@ export const staffRouter = router({
             await db
               .update(tables)
               .set({ status: 'available' })
-              .where(eq(tables.id, input.tableId));
+              .where(
+                and(
+                  eq(tables.id, input.tableId),
+                  eq(tables.restaurantId, restaurantId)
+                )
+              );
             ee.emit(EVENTS.BOOKINGS_CHANGED);
           }, input.duration * 60 * 1000);
         }
@@ -141,14 +157,15 @@ export const staffRouter = router({
         reason: z.string().optional(), // Why this override was needed
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
       const isMock = isMockMode();
 
       const bookingId = `bk_override_${Date.now()}`;
 
       const newBooking: any = {
         id: bookingId,
-        restaurantId: 'res_default',
+        restaurantId,
         customerId: `cust_${Date.now()}`,
         tableId: input.tableId,
         bookingDate: input.bookingDate,
@@ -186,26 +203,36 @@ export const staffRouter = router({
    */
   checkInCustomer: protectedProcedure
     .input(z.object({ bookingId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
       const isMock = isMockMode();
 
       if (isMock) {
-        const booking = MOCK_BOOKINGS.find(b => b.id === input.bookingId);
-        if (booking) {
-          booking.status = 'seated';
-          booking.checkedInAt = new Date().toISOString();
+        const booking = MOCK_BOOKINGS.find(b => b.id === input.bookingId && b.restaurantId === restaurantId);
+        if (!booking) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Booking not found in mock data or access denied." });
         }
+        booking.status = 'seated';
+        booking.checkedInAt = new Date().toISOString();
         return { success: true, message: 'Customer checked in' };
       }
 
       try {
-        await db
+        const result = await db
           .update(bookings)
           .set({
             status: 'seated',
-
           })
-          .where(eq(bookings.id, input.bookingId));
+          .where(
+            and(
+              eq(bookings.id, input.bookingId),
+              eq(bookings.restaurantId, restaurantId)
+            )
+          );
+
+        if (result.changes === 0) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Booking not found or access denied." });
+        }
 
         ee.emit(EVENTS.BOOKINGS_CHANGED);
         return { success: true, message: 'Customer checked in' };
@@ -226,28 +253,38 @@ export const staffRouter = router({
         finalBill: z.number().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
       const isMock = isMockMode();
 
       if (isMock) {
-        const booking = MOCK_BOOKINGS.find(b => b.id === input.bookingId);
-        if (booking) {
-          booking.status = 'done';
-          booking.checkedOutAt = new Date().toISOString();
-          if (input.finalBill) booking.finalBill = input.finalBill;
+        const booking = MOCK_BOOKINGS.find(b => b.id === input.bookingId && b.restaurantId === restaurantId);
+        if (!booking) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Booking not found in mock data or access denied." });
         }
+        booking.status = 'done';
+        booking.checkedOutAt = new Date().toISOString();
+        if (input.finalBill) booking.finalBill = input.finalBill;
         return { success: true, message: 'Customer checked out' };
       }
 
       try {
-        await db
+        const result = await db
           .update(bookings)
           .set({
             status: 'done',
-
             finalBill: input.finalBill || 0,
           })
-          .where(eq(bookings.id, input.bookingId));
+          .where(
+            and(
+              eq(bookings.id, input.bookingId),
+              eq(bookings.restaurantId, restaurantId)
+            )
+          );
+
+        if (result.changes === 0) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Booking not found or access denied." });
+        }
 
         ee.emit(EVENTS.BOOKINGS_CHANGED);
         return { success: true, message: 'Customer checked out' };
@@ -263,26 +300,36 @@ export const staffRouter = router({
    */
   markNoShow: protectedProcedure
     .input(z.object({ bookingId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
       const isMock = isMockMode();
 
       if (isMock) {
-        const booking = MOCK_BOOKINGS.find(b => b.id === input.bookingId);
-        if (booking) {
-          booking.status = 'no_show';
-          booking.noShowAt = new Date().toISOString();
+        const booking = MOCK_BOOKINGS.find(b => b.id === input.bookingId && b.restaurantId === restaurantId);
+        if (!booking) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Booking not found in mock data or access denied." });
         }
+        booking.status = 'no_show';
+        booking.noShowAt = new Date().toISOString();
         return { success: true, message: 'Marked as no-show' };
       }
 
       try {
-        await db
+        const result = await db
           .update(bookings)
           .set({
             status: 'no_show',
-
           })
-          .where(eq(bookings.id, input.bookingId));
+          .where(
+            and(
+              eq(bookings.id, input.bookingId),
+              eq(bookings.restaurantId, restaurantId)
+            )
+          );
+
+        if (result.changes === 0) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Booking not found or access denied." });
+        }
 
         ee.emit(EVENTS.BOOKINGS_CHANGED);
         return { success: true, message: 'Marked as no-show' };
@@ -297,8 +344,8 @@ export const staffRouter = router({
    * Shows key metrics for the day
    */
   getTodaySummary: protectedProcedure
-    .input(z.object({ restaurantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
       const today = new Date().toISOString().split('T')[0];
       const isMock = isMockMode();
 
@@ -309,12 +356,12 @@ export const staffRouter = router({
           .from(bookings)
           .where(
             and(
-              eq(bookings.restaurantId, input.restaurantId),
+              eq(bookings.restaurantId, restaurantId),
               eq(bookings.bookingDate, today)
             )
           );
       } catch (e) {
-        dayBookings = MOCK_BOOKINGS.filter(b => b.bookingDate === today);
+        dayBookings = MOCK_BOOKINGS.filter(b => b.restaurantId === restaurantId && b.bookingDate === today);
       }
 
       return {

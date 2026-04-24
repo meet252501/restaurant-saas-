@@ -11,22 +11,33 @@ export const reportRouter = router({
       date: z.string(), // YYYY-MM-DD
       ownerPhone: z.string(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return { success: false };
+      const restaurantId = ctx.user.restaurantId;
 
       // 1. Get Delivery Stats
       const dayDelivery = await db.select({
         count: sql<number>`count(*)`,
         revenue: sql<number>`sum(total_amount)`
       }).from(deliveryOrders)
-        .where(sql`date(created_at) = ${input.date}`);
+        .where(
+          and(
+            sql`date(created_at) = ${input.date}`,
+            eq(deliveryOrders.restaurantId, restaurantId)
+          )
+        );
 
       // 2. Get Booking Stats
       const dayBookings = await db.select({
         count: sql<number>`count(*)`
       }).from(bookings)
-        .where(eq(bookings.bookingDate, input.date));
+        .where(
+          and(
+            eq(bookings.bookingDate, input.date),
+            eq(bookings.restaurantId, restaurantId)
+          )
+        );
 
       const stats = {
         deliveryCount: dayDelivery[0]?.count || 0,

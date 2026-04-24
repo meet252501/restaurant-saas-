@@ -14,32 +14,39 @@ import { GoogleSheetsService, ManagerEmailService } from "./_core/googleSheets";
 import { RazorpayService } from "./_core/razorpayService";
 
 export const bookingRouter = router({
-  listByDate: publicProcedure
-    .input(z.object({ restaurantId: z.string(), date: z.string() })) // YYYY-MM-DD
-    .query(async ({ input }) => {
+  listByDate: protectedProcedure
+    .input(z.object({ date: z.string() })) // YYYY-MM-DD
+    .query(async ({ input, ctx }) => {
       if (isMockMode()) {
-        return MOCK_BOOKINGS.filter(b => b.restaurantId === input.restaurantId && b.bookingDate === input.date);
+        return MOCK_BOOKINGS.filter(b => b.restaurantId === ctx.user.restaurantId && b.bookingDate === input.date);
       }
       return await db.select()
         .from(bookings)
         .where(
           and(
-            eq(bookings.restaurantId, input.restaurantId),
+            eq(bookings.restaurantId, ctx.user.restaurantId),
             eq(bookings.bookingDate, input.date)
           )
         );
     }),
 
-  getById: publicProcedure
+  getById: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       if (isMockMode()) {
-        return MOCK_BOOKINGS.find(b => b.id === input.id) || null;
+        const booking = MOCK_BOOKINGS.find(b => b.id === input.id);
+        if (booking && booking.restaurantId !== ctx.user.restaurantId) return null;
+        return booking || null;
       }
       const result = await db
         .select()
         .from(bookings)
-        .where(eq(bookings.id, input.id));
+        .where(
+          and(
+            eq(bookings.id, input.id),
+            eq(bookings.restaurantId, ctx.user.restaurantId)
+          )
+        );
       return result[0];
     }),
 
@@ -306,14 +313,14 @@ export const bookingRouter = router({
       return newBooking;
     }),
 
-  updateStatus: publicProcedure
+  updateStatus: protectedProcedure
     .input(z.object({
       id: z.string(),
       status: z.enum(["pending", "confirmed", "seated", "done", "cancelled", "no_show", "checked_in", "completed"]),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       if (isMockMode()) {
-        const mockIdx = MOCK_BOOKINGS.findIndex((b) => b.id === input.id);
+        const mockIdx = MOCK_BOOKINGS.findIndex((b) => b.id === input.id && b.restaurantId === ctx.user.restaurantId);
         if (mockIdx !== -1) {
           const booking = MOCK_BOOKINGS[mockIdx];
           booking.status = input.status;
@@ -337,11 +344,21 @@ export const bookingRouter = router({
         ee.emit(EVENTS.BOOKINGS_CHANGED);
         return { success: true };
       }
-      let dbStatus = input.status;
-      if (dbStatus === "checked_in") dbStatus = "seated";
-      if (dbStatus === "completed") dbStatus = "done";
+      
+      const dbStatus = input.status === "checked_in" ? "seated" : (input.status === "completed" ? "done" : input.status);
 
-      await db.update(bookings).set({ status: dbStatus as any }).where(eq(bookings.id, input.id));
+      const result = await db.update(bookings)
+        .set({ status: dbStatus as any })
+        .where(
+          and(
+            eq(bookings.id, input.id),
+            eq(bookings.restaurantId, ctx.user.restaurantId)
+          )
+        );
+
+      if (result.changes === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Booking not found or access denied." });
+      }
       ee.emit(EVENTS.BOOKINGS_CHANGED);
       return { success: true };
     }),

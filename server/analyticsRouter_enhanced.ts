@@ -21,8 +21,8 @@ export const analyticsRouterEnhanced = router({
    * Shows key metrics for the current day
    */
   todayKPIs: protectedProcedure
-    .input(z.object({ restaurantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
       const today = new Date().toISOString().split('T')[0];
       const isMock = isMockMode();
 
@@ -35,7 +35,7 @@ export const analyticsRouterEnhanced = router({
           .from(bookings)
           .where(
             and(
-              eq(bookings.restaurantId, input.restaurantId),
+              eq(bookings.restaurantId, restaurantId),
               eq(bookings.bookingDate, today)
             )
           );
@@ -43,10 +43,10 @@ export const analyticsRouterEnhanced = router({
         allTables = await db
           .select()
           .from(tables)
-          .where(eq(tables.restaurantId, input.restaurantId));
+          .where(eq(tables.restaurantId, restaurantId));
       } catch (e) {
-        dayBookings = MOCK_BOOKINGS.filter(b => b.bookingDate === today);
-        allTables = MOCK_TABLES;
+        dayBookings = MOCK_BOOKINGS.filter(b => b.restaurantId === restaurantId && b.bookingDate === today);
+        allTables = MOCK_TABLES.filter(t => t.restaurantId === restaurantId);
       }
 
       const confirmedBookings = dayBookings.filter(b => b.status === 'confirmed' || b.status === 'seated');
@@ -78,8 +78,8 @@ export const analyticsRouterEnhanced = router({
    * Shows booking and revenue trends over the last 30 days
    */
   thirtyDayTrends: protectedProcedure
-    .input(z.object({ restaurantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
         .toISOString()
         .split('T')[0];
@@ -94,14 +94,14 @@ export const analyticsRouterEnhanced = router({
           .from(bookings)
           .where(
             and(
-              eq(bookings.restaurantId, input.restaurantId),
+              eq(bookings.restaurantId, restaurantId),
               gte(bookings.bookingDate, thirtyDaysAgo),
               lte(bookings.bookingDate, today)
             )
           );
       } catch (e) {
         monthBookings = MOCK_BOOKINGS.filter(
-          b => b.bookingDate >= thirtyDaysAgo && b.bookingDate <= today
+          b => b.restaurantId === restaurantId && b.bookingDate >= thirtyDaysAgo && b.bookingDate <= today
         );
       }
 
@@ -151,8 +151,9 @@ export const analyticsRouterEnhanced = router({
    * Top customers by visit count and revenue
    */
   topCustomers: protectedProcedure
-    .input(z.object({ restaurantId: z.string(), limit: z.number().default(10) }))
-    .query(async ({ input }) => {
+    .input(z.object({ limit: z.number().default(10) }))
+    .query(async ({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
       const isMock = isMockMode();
 
       if (isMock) {
@@ -182,7 +183,7 @@ export const analyticsRouterEnhanced = router({
           })
           .from(customers)
           .leftJoin(bookings, eq(customers.id, bookings.customerId))
-          .where(eq(customers.restaurantId, input.restaurantId))
+          .where(eq(customers.restaurantId, restaurantId))
           .groupBy(customers.id)
           .orderBy(desc(sql`COUNT(${bookings.id})`))
           .limit(input.limit);
@@ -199,8 +200,9 @@ export const analyticsRouterEnhanced = router({
    * Detailed revenue breakdown by source, time, and customer
    */
   revenueAnalysis: protectedProcedure
-    .input(z.object({ restaurantId: z.string(), days: z.number().default(30) }))
-    .query(async ({ input }) => {
+    .input(z.object({ days: z.number().default(30) }))
+    .query(async ({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
       const startDate = new Date(Date.now() - input.days * 24 * 60 * 60 * 1000)
         .toISOString()
         .split('T')[0];
@@ -214,14 +216,14 @@ export const analyticsRouterEnhanced = router({
           .from(bookings)
           .where(
             and(
-              eq(bookings.restaurantId, input.restaurantId),
+              eq(bookings.restaurantId, restaurantId),
               gte(bookings.bookingDate, startDate),
               eq(bookings.status, 'done')
             )
           );
       } catch (e) {
         periodBookings = MOCK_BOOKINGS.filter(
-          b => b.bookingDate >= startDate && b.status === 'done'
+          b => b.restaurantId === restaurantId && b.bookingDate >= startDate && b.status === 'done'
         );
       }
 
@@ -264,8 +266,9 @@ export const analyticsRouterEnhanced = router({
    * No-show rate, cancellation rate, and other KPIs
    */
   performanceMetrics: protectedProcedure
-    .input(z.object({ restaurantId: z.string(), days: z.number().default(30) }))
-    .query(async ({ input }) => {
+    .input(z.object({ days: z.number().default(30) }))
+    .query(async ({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
       const startDate = new Date(Date.now() - input.days * 24 * 60 * 60 * 1000)
         .toISOString()
         .split('T')[0];
@@ -279,12 +282,12 @@ export const analyticsRouterEnhanced = router({
           .from(bookings)
           .where(
             and(
-              eq(bookings.restaurantId, input.restaurantId),
+              eq(bookings.restaurantId, restaurantId),
               gte(bookings.bookingDate, startDate)
             )
           );
       } catch (e) {
-        periodBookings = MOCK_BOOKINGS.filter(b => b.bookingDate >= startDate);
+        periodBookings = MOCK_BOOKINGS.filter(b => b.restaurantId === restaurantId && b.bookingDate >= startDate);
       }
 
       const totalBookings = periodBookings.length;
@@ -311,12 +314,13 @@ export const analyticsRouterEnhanced = router({
    * Generate a comprehensive PDF report for the owner
    */
   exportMonthlyReport: protectedProcedure
-    .input(z.object({ restaurantId: z.string(), month: z.string() })) // YYYY-MM
-    .query(async ({ input }) => {
+    .input(z.object({ month: z.string() })) // YYYY-MM
+    .query(async ({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
       // TODO: Generate PDF using ReportLab or similar
       return {
         success: true,
-        reportUrl: `/reports/${input.restaurantId}_${input.month}.pdf`,
+        reportUrl: `/reports/${restaurantId}_${input.month}.pdf`,
         message: 'Report generated successfully',
       };
     }),

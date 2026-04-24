@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { publicProcedure, router } from "../_core/trpc";
+import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import { db } from "../db";
 import { bookings, deliveryOrders, customers } from "../../drizzle/schema";
 import { eq, and, sql } from "drizzle-orm";
@@ -19,10 +19,11 @@ function currentHour() {
 export const dailySnapshotRouter = router({
 
   /** Get today's full live snapshot — resets naturally each new day */
-  getSnapshot: publicProcedure
-    .input(z.object({ restaurantId: z.string().default("res_default") }))
-    .query(async ({ input }) => {
+  getSnapshot: protectedProcedure
+    .input(z.object({}))
+    .query(async ({ ctx }) => {
       const today = todayStr();
+      const restaurantId = ctx.user.restaurantId;
 
       try {
         // ── Bookings today ───────────────────────────────────────────────
@@ -31,7 +32,7 @@ export const dailySnapshotRouter = router({
           .from(bookings)
           .where(
             and(
-              eq(bookings.restaurantId, input.restaurantId),
+              eq(bookings.restaurantId, restaurantId),
               eq(bookings.bookingDate, today)
             )
           );
@@ -59,7 +60,7 @@ export const dailySnapshotRouter = router({
           .from(deliveryOrders)
           .where(
             and(
-              eq(deliveryOrders.restaurantId, input.restaurantId),
+              eq(deliveryOrders.restaurantId, restaurantId),
               sql`date(${deliveryOrders.createdAt}) = ${today}`
             )
           );

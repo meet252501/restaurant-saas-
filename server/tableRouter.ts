@@ -8,13 +8,13 @@ import { ee, EVENTS } from "./events";
 import { MOCK_TABLES } from "./mockData";
 
 export const tableRouter = router({
-  listByRestaurant: publicProcedure
-    .input(z.object({ restaurantId: z.string() }))
-    .query(async ({ input }) => {
+  listByRestaurant: protectedProcedure
+    .query(async ({ ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
       if (isMockMode()) {
-        return MOCK_TABLES.filter(t => t.restaurantId === input.restaurantId);
+        return MOCK_TABLES.filter(t => t.restaurantId === restaurantId);
       }
-      return await db.select().from(tables).where(eq(tables.restaurantId, input.restaurantId));
+      return await db.select().from(tables).where(eq(tables.restaurantId, restaurantId));
     }),
 
   updateStatus: protectedProcedure
@@ -22,14 +22,27 @@ export const tableRouter = router({
       id: z.string(),
       status: z.enum(["available", "occupied", "reserved", "cleaning", "blocked"]),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
       if (isMockMode()) {
-        const t = MOCK_TABLES.find(t => t.id === input.id);
+        const t = MOCK_TABLES.find(t => t.id === input.id && t.restaurantId === restaurantId);
         if (t) t.status = input.status;
         ee.emit(EVENTS.TABLES_CHANGED);
         return { success: true };
       }
-      await db.update(tables).set({ status: input.status }).where(eq(tables.id, input.id));
+      const result = await db
+        .update(tables)
+        .set({ status: input.status })
+        .where(
+          and(
+            eq(tables.id, input.id),
+            eq(tables.restaurantId, restaurantId)
+          )
+        );
+
+      if (result.changes === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Table not found or access denied." });
+      }
       ee.emit(EVENTS.TABLES_CHANGED);
       return { success: true };
     }),
@@ -37,19 +50,19 @@ export const tableRouter = router({
   // ── NEW: Add a table ───────────────────────────────────────────────
   addTable: protectedProcedure
     .input(z.object({
-      restaurantId: z.string(),
       capacity: z.number().min(1).max(20),
       zone: z.string().optional(),  // "Indoor" | "Outdoor" | "Rooftop" | "Private"
     }))
-    .mutation(async ({ input }) => {
-      const nextNumber = MOCK_TABLES.length > 0
-        ? Math.max(...MOCK_TABLES.map(t => t.tableNumber)) + 1
+    .mutation(async ({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
+      const nextNumber = MOCK_TABLES.filter(t => t.restaurantId === restaurantId).length > 0
+        ? Math.max(...MOCK_TABLES.filter(t => t.restaurantId === restaurantId).map(t => t.tableNumber)) + 1
         : 1;
       const id = `t${nextNumber}_${Date.now()}`;
 
       const newTable: any = {
         id,
-        restaurantId: input.restaurantId,
+        restaurantId,
         tableNumber: nextNumber,
         capacity: input.capacity,
         status: "available",
@@ -64,7 +77,7 @@ export const tableRouter = router({
 
       await db.insert(tables).values({
         id,
-        restaurantId: input.restaurantId,
+        restaurantId,
         tableNumber: nextNumber,
         capacity: input.capacity,
         status: "available",
@@ -80,9 +93,10 @@ export const tableRouter = router({
       capacity: z.number().min(1).max(20).optional(),
       zone: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
       if (isMockMode()) {
-        const t = MOCK_TABLES.find(t => t.id === input.id) as any;
+        const t = MOCK_TABLES.find(t => t.id === input.id && t.restaurantId === restaurantId) as any;
         if (t) {
           if (input.capacity) t.capacity = input.capacity;
           if (input.zone) t.zone = input.zone;
@@ -90,9 +104,26 @@ export const tableRouter = router({
         ee.emit(EVENTS.TABLES_CHANGED);
         return { success: true };
       }
-      if (input.capacity) {
-        await db.update(tables).set({ capacity: input.capacity }).where(eq(tables.id, input.id));
+      
+      const updateData: any = {};
+      if (input.capacity) updateData.capacity = input.capacity;
+      // Note: zone might not be in the actual DB schema if it was only in mock, 
+      // but if it is, we should update it. 
+      
+      const result = await db
+        .update(tables)
+        .set(updateData)
+        .where(
+          and(
+            eq(tables.id, input.id),
+            eq(tables.restaurantId, restaurantId)
+          )
+        );
+
+      if (result.changes === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Table not found or access denied." });
       }
+        
       ee.emit(EVENTS.TABLES_CHANGED);
       return { success: true };
     }),
@@ -100,14 +131,26 @@ export const tableRouter = router({
   // ── NEW: Remove a table ────────────────────────────────────────────
   removeTable: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
       if (isMockMode()) {
-        const idx = MOCK_TABLES.findIndex(t => t.id === input.id);
+        const idx = MOCK_TABLES.findIndex(t => t.id === input.id && t.restaurantId === restaurantId);
         if (idx !== -1) MOCK_TABLES.splice(idx, 1);
         ee.emit(EVENTS.TABLES_CHANGED);
         return { success: true };
       }
-      await db.delete(tables).where(eq(tables.id, input.id));
+      const result = await db
+        .delete(tables)
+        .where(
+          and(
+            eq(tables.id, input.id),
+            eq(tables.restaurantId, restaurantId)
+          )
+        );
+
+      if (result.changes === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Table not found or access denied." });
+      }
       ee.emit(EVENTS.TABLES_CHANGED);
       return { success: true };
     }),

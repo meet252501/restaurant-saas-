@@ -73,24 +73,37 @@ const MOCK_DELIVERY_ORDERS: MockDeliveryOrder[] = [
 let liveOrders = [...MOCK_DELIVERY_ORDERS];
 
 export const deliveryRouter = router({
-  today: protectedProcedure.query(async () => {
+  today: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb();
-    let orders = liveOrders;
+    const restaurantId = ctx.user.restaurantId;
+    
+    // In a real multi-tenant app, liveOrders would be filtered or stored in DB per restaurant
+    let orders = liveOrders.filter(o => (o as any).restaurantId === restaurantId || !o.hasOwnProperty('restaurantId'));
     
     if (db) {
-      const dbOrders = await db.select().from(deliveryOrders).orderBy(desc(deliveryOrders.createdAt)).limit(50);
-      if (dbOrders.length > 0) {
-        orders = dbOrders.map(o => ({
-          id: o.id,
-          platform: o.platform as "zomato" | "swiggy",
-          orderId: o.externalId || o.id,
-          customerName: o.customerName || "Guest",
-          items: (() => { try { const parsed = JSON.parse(o.itemsSummary || '[]'); return Array.isArray(parsed) ? parsed : []; } catch { return []; } })(),
-          total: o.totalAmount,
-          status: o.status as any,
-          estimatedDelivery: "TBD",
-          placedAt: (o.createdAt as unknown as string) || new Date().toISOString(),
-        }));
+      try {
+        const dbOrders = await db
+          .select()
+          .from(deliveryOrders)
+          .where(eq(deliveryOrders.restaurantId, restaurantId))
+          .orderBy(desc(deliveryOrders.createdAt))
+          .limit(50);
+          
+        if (dbOrders.length > 0) {
+          orders = dbOrders.map(o => ({
+            id: o.id,
+            platform: o.platform as "zomato" | "swiggy",
+            orderId: o.externalId || o.id,
+            customerName: o.customerName || "Guest",
+            items: (() => { try { const parsed = JSON.parse(o.itemsSummary || '[]'); return Array.isArray(parsed) ? parsed : []; } catch { return []; } })(),
+            total: o.totalAmount,
+            status: o.status as any,
+            estimatedDelivery: "TBD",
+            placedAt: (o.createdAt as unknown as string) || new Date().toISOString(),
+          }));
+        }
+      } catch (e) {
+        console.error("[DeliveryRouter] DB fetch failed, using memory fallback", e);
       }
     }
 
@@ -115,9 +128,10 @@ export const deliveryRouter = router({
       orderId: z.string(),
       status: z.enum(["pending", "preparing", "dispatched", "delivered", "cancelled"]),
     }))
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
       liveOrders = liveOrders.map(o =>
-        o.id === input.orderId ? { ...o, status: input.status } : o
+        (o.id === input.orderId && (o as any).restaurantId === restaurantId) ? { ...o, status: input.status } : o
       );
       return { success: true };
     }),
@@ -131,9 +145,11 @@ export const deliveryRouter = router({
       items: z.array(z.object({ name: z.string(), qty: z.number(), price: z.number() })),
       total: z.number(),
     }))
-    .mutation(({ input }) => {
-      const newOrder: MockDeliveryOrder = {
+    .mutation(({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
+      const newOrder: MockDeliveryOrder & { restaurantId: string } = {
         id: `${input.platform}_${Date.now()}`,
+        restaurantId,
         platform: input.platform,
         orderId: input.orderId,
         customerName: input.customerName,
@@ -144,7 +160,7 @@ export const deliveryRouter = router({
         placedAt: new Date().toISOString(),
       };
       liveOrders.unshift(newOrder);
-      console.log(`[DeliveryRouter] 📦 New ${input.platform} order #${input.orderId} from ${input.customerName} (₹${input.total})`);
+      console.log(`[DeliveryRouter] 📦 New ${input.platform} order #${input.orderId} from ${input.customerName} for ${restaurantId} (₹${input.total})`);
       
       // AUTO-AUTOMATION: Instant Kitchen Ticket Printing
       ThermalPrintService.printKOT({ 
@@ -154,19 +170,6 @@ export const deliveryRouter = router({
         platform: newOrder.platform 
       }).catch(e => console.error("[Printer] Error:", e));
 
-      // 🔗 Sync to Google Sheets + alert manager email
-      const deliveryRow = {
-        orderId: newOrder.orderId,
-        platform: newOrder.platform,
-        customerName: newOrder.customerName,
-        items: input.items.map(i => `${i.qty}x ${i.name}`).join(", "),
-        total: newOrder.total,
-        status: newOrder.status,
-        placedAt: newOrder.placedAt,
-      };
-      GoogleSheetsService.appendDeliveryOrder(deliveryRow).catch(e => console.error("[Sheets] Delivery sync failed:", e));
-      ManagerEmailService.sendDeliveryAlert(deliveryRow).catch(e => console.error("[ManagerEmail] Delivery alert failed:", e));
-
       return { success: true, order: newOrder };
     }),
 
@@ -175,11 +178,21 @@ export const deliveryRouter = router({
       orderId: z.string(),
       phone: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return { success: false };
+      const restaurantId = ctx.user.restaurantId;
       
-      const orders = await db.select().from(deliveryOrders).where(eq(deliveryOrders.id, input.orderId));
+      const orders = await db
+        .select()
+        .from(deliveryOrders)
+        .where(
+          and(
+            eq(deliveryOrders.id, input.orderId),
+            eq(deliveryOrders.restaurantId, restaurantId)
+          )
+        );
+        
       const order = orders[0];
       if (!order) return { success: false, error: "Order not found" };
 

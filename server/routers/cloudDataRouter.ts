@@ -6,19 +6,19 @@ import crypto from "crypto";
 
 export const cloudDataRouter = router({
   /** Fetch recent cloud archives for a restaurant (read-only) */
-  getRecent: publicProcedure
+  getRecent: protectedProcedure
     .input(z.object({
-      restaurantId: z.string(),
       dataType: z.enum(["bookings", "deliveryOrders", "all"]).optional().default("all"),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
       if (!tursoClient) {
         // Return simulated mock data if Turso is not connected so the UI works
         return {
           archives: [
             {
               id: "mock_1",
-              restaurantId: input.restaurantId,
+              restaurantId: restaurantId,
               dataType: "bookings",
               dataJson: JSON.stringify({
                 bookingDate: new Date().toISOString().split('T')[0],
@@ -30,7 +30,7 @@ export const cloudDataRouter = router({
             },
             {
               id: "mock_2",
-              restaurantId: input.restaurantId,
+              restaurantId: restaurantId,
               dataType: "deliveryOrders",
               dataJson: JSON.stringify({
                 platform: "Zomato",
@@ -56,7 +56,7 @@ export const cloudDataRouter = router({
                 WHERE restaurant_id = ? ${typeFilter}
                 ORDER BY archived_at DESC 
                 LIMIT 500`,
-          args: [input.restaurantId],
+          args: [restaurantId],
         });
 
         const archives = result.rows.map((row: any) => ({
@@ -80,7 +80,7 @@ export const cloudDataRouter = router({
           archives: [
             {
               id: "mock_1",
-              restaurantId: input.restaurantId,
+              restaurantId: restaurantId,
               dataType: "bookings",
               dataJson: JSON.stringify({
                 bookingDate: new Date().toISOString().split('T')[0],
@@ -92,7 +92,7 @@ export const cloudDataRouter = router({
             },
             {
               id: "mock_2",
-              restaurantId: input.restaurantId,
+              restaurantId: restaurantId,
               dataType: "deliveryOrders",
               dataJson: JSON.stringify({
                 platform: "Zomato",
@@ -110,7 +110,8 @@ export const cloudDataRouter = router({
     }),
 
   /** Check Turso connection status & table existence */
-  getStatus: publicProcedure.query(async () => {
+  getStatus: protectedProcedure.query(async ({ ctx }) => {
+    const restaurantId = ctx.user.restaurantId;
     if (!tursoClient) {
       return {
         connected: false,
@@ -132,16 +133,17 @@ export const cloudDataRouter = router({
         )
       `);
 
-      const countResult = await tursoClient.execute(
-        `SELECT COUNT(*) as total FROM cloud_archives`
-      );
+      const countResult = await tursoClient.execute({
+        sql: `SELECT COUNT(*) as total FROM cloud_archives WHERE restaurant_id = ?`,
+        args: [restaurantId]
+      });
 
       const total = Number((countResult.rows[0] as any)?.total ?? 0);
       return {
         connected: true,
         tableExists: true,
         totalRecords: total,
-        message: `Turso connected. ${total} archived records.`,
+        message: `Turso connected. ${total} archived records for this restaurant.`,
       };
     } catch (err: any) {
       return {
@@ -156,11 +158,11 @@ export const cloudDataRouter = router({
   /** Manual sync: push data records to Turso cloud */
   syncToCloud: protectedProcedure
     .input(z.object({
-      restaurantId: z.string(),
       dataType: z.enum(["bookings", "deliveryOrders"]),
       records: z.array(z.record(z.string(), z.unknown())),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
       if (!tursoClient) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
@@ -178,7 +180,7 @@ export const cloudDataRouter = router({
                   VALUES (?, ?, ?, ?)`,
             args: [
               crypto.randomUUID(),
-              input.restaurantId,
+              restaurantId,
               input.dataType,
               JSON.stringify(record),
             ],
@@ -200,10 +202,10 @@ export const cloudDataRouter = router({
   /** Purge records older than N days (default 3) */
   purgeOldRecords: protectedProcedure
     .input(z.object({
-      restaurantId: z.string(),
       olderThanDays: z.number().min(1).max(90).optional().default(3),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
       if (!tursoClient) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
@@ -215,7 +217,7 @@ export const cloudDataRouter = router({
         // Count before
         const before = await tursoClient.execute({
           sql: `SELECT COUNT(*) as c FROM cloud_archives WHERE restaurant_id = ?`,
-          args: [input.restaurantId],
+          args: [restaurantId],
         });
         const countBefore = Number((before.rows[0] as any)?.c ?? 0);
 
@@ -224,13 +226,13 @@ export const cloudDataRouter = router({
           sql: `DELETE FROM cloud_archives 
                 WHERE restaurant_id = ? 
                 AND archived_at < datetime('now', ?)`,
-          args: [input.restaurantId, `-${input.olderThanDays} days`],
+          args: [restaurantId, `-${input.olderThanDays} days`],
         });
 
         // Count after
         const after = await tursoClient.execute({
           sql: `SELECT COUNT(*) as c FROM cloud_archives WHERE restaurant_id = ?`,
-          args: [input.restaurantId],
+          args: [restaurantId],
         });
         const countAfter = Number((after.rows[0] as any)?.c ?? 0);
 
@@ -251,12 +253,12 @@ export const cloudDataRouter = router({
   /** Export a date range of archived data as JSON */
   exportRange: protectedProcedure
     .input(z.object({
-      restaurantId: z.string(),
       dataType: z.enum(["bookings", "deliveryOrders", "all"]).optional().default("all"),
       fromDate: z.string().optional(),
       toDate: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId;
       if (!tursoClient) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Turso not configured." });
       }
@@ -269,7 +271,7 @@ export const cloudDataRouter = router({
         sql: `SELECT * FROM cloud_archives 
               WHERE restaurant_id = ? ${typeClause} ${fromClause} ${toClause}
               ORDER BY archived_at DESC LIMIT 1000`,
-        args: [input.restaurantId],
+        args: [restaurantId],
       });
 
       const records = result.rows.map((row: any) => {
