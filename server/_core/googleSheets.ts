@@ -20,7 +20,7 @@
 
 import crypto from "crypto";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const nodemailer = require("nodemailer");
+import nodemailer from "nodemailer";
 
 const SERVICE_ACCOUNT_EMAIL = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || "";
 const PRIVATE_KEY = (process.env.GOOGLE_PRIVATE_KEY || "").replace(/\\n/g, "\n");
