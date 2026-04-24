@@ -254,9 +254,8 @@ export const bookingRouter = router({
           if (e.message.includes('already booked')) {
             throw new Error('This table is no longer available for the selected time. Please choose another time or table.');
           }
-          // For other errors, fall back to mock
-          console.warn("[DB] Falling back to mock persistence", e);
-          MOCK_BOOKINGS.push(newBooking);
+          // For other errors, do NOT fall back to mock in production-ready mode
+          throw new Error(`BOOKING_FAILURE: ${e.message || 'Unknown database error'}`);
         }
       }
       

@@ -33,6 +33,7 @@ export function getDb() {
   if (!_db) {
     const tursoUrl = process.env.TURSO_DATABASE_URL;
     const tursoToken = process.env.TURSO_AUTH_TOKEN;
+    const isProduction = process.env.NODE_ENV === 'production';
 
     const isPlaceholderUrl = !tursoUrl || tursoUrl.includes('your-db') || tursoUrl === 'libsql://your-db-name.turso.io';
 
@@ -45,17 +46,24 @@ export function getDb() {
         _db = drizzleLibsql(client, { schema }) as any;
         console.log(`[DB] Connected to TURSO CLOUD at ${tursoUrl}`);
       } catch (error) {
-        console.warn('[DB] Failed to connect to Turso:', error);
+        console.error('[DB] CRITICAL: Failed to connect to Turso cloud database:', error);
+        if (isProduction) {
+          throw new Error('PRODUCTION_DB_FAILURE: Could not connect to Turso. Aborting to prevent data loss.');
+        }
       }
     }
 
     if (!_db) {
+      if (isProduction) {
+        throw new Error('PRODUCTION_DB_MISSING: TURSO_DATABASE_URL is not configured. Cloud DB is mandatory for commercial use.');
+      }
+      
       try {
         _sqlite = new Database(DB_PATH);
         _sqlite.pragma('journal_mode = WAL');
         _sqlite.pragma('foreign_keys = ON');
         _db = drizzle(_sqlite, { schema }) as any;
-        console.log(`[DB] Connected to LOCAL SQLite at ${DB_PATH}`);
+        console.log(`[DB] Connected to LOCAL SQLite at ${DB_PATH} (Development Only)`);
       } catch (error) {
         console.warn('[DB] Failed to open local SQLite:', error);
         _db = null;

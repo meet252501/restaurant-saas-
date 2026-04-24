@@ -5,11 +5,25 @@ import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { applyWSSHandler } from "@trpc/server/adapters/ws";
 import { WebSocketServer } from "ws";
+import helmet from "helmet";
+import { rateLimit } from "express-rate-limit";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { AutomationService } from "./automation";
 import { initCloudDB } from "./tursoClient";
+import { validateEnv } from "./env";
+
+// Run validation immediately
+validateEnv();
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per `window` (here, per 15 minutes)
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  message: { error: "Too many requests, please try again later." },
+});
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -33,6 +47,12 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
+
+  // Commercial Security Middleware
+  app.use(helmet({
+    contentSecurityPolicy: false, // Disable CSP for easier integration with cross-domain dashboards for now
+  }));
+  app.use(limiter);
 
   // Enable CORS for all routes - reflect the request origin to support credentials
   app.use((req, res, next) => {
