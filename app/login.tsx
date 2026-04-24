@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, KeyboardAvoidingView, Platform, Animated, Pressable, SafeAreaView, Dimensions, TextInput, Linking
+  View, Text, StyleSheet, KeyboardAvoidingView, Platform, Animated, Pressable, SafeAreaView, Dimensions, TextInput, Linking, useWindowDimensions
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -10,9 +10,10 @@ import { Ionicons, FontAwesome } from '@expo/vector-icons';
 import { trpc } from '../lib/trpc';
 import { useSaaSStore } from '../lib/saas-store';
 
-const { width } = Dimensions.get('window');
 
-type Mode = 'loading' | 'login' | 'setup_info' | 'setup_pin' | 'confirm_pin';
+
+
+type Mode = 'loading' | 'login' | 'setup_restaurant' | 'setup_info' | 'setup_pin' | 'confirm_pin';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -27,21 +28,62 @@ export default function LoginScreen() {
   const [errorMsg, setErrorMsg] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const appName = useSaaSStore(s => s.appName);
+  const setAppNameStore = useSaaSStore(s => s.setAppName);
+  const setThemeColorStore = useSaaSStore(s => s.setThemeColor);
   const trpcUtils = trpc.useUtils();
+  
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const isSmallScreen = windowWidth < 360;
+
+  // New setup state
+  const [newAppName, setNewAppName] = useState(appName || '');
+  const [selectedTheme, setSelectedTheme] = useState<ThemeColor>('violet');
+  
+  const themeHexMap: Record<ThemeColor, string> = {
+    emerald: '#10b981',
+    blue: '#3b82f6',
+    rose: '#f43f5e',
+    amber: '#f59e0b',
+    violet: '#8b5cf6',
+  };
 
   // Check if users exist on mount
   const hasUsersQuery = trpc.auth.hasUsers.useQuery(undefined, {
     retry: 2,
   });
 
+  // Fetch restaurant info to sync store if needed
+  const restaurantInfoQuery = trpc.restaurant.info.useQuery(undefined, {
+    enabled: hasUsersQuery.isSuccess && hasUsersQuery.data?.exists,
+  });
+
   useEffect(() => {
     if (hasUsersQuery.isSuccess && hasUsersQuery.data) {
-      setMode(hasUsersQuery.data.exists ? 'login' : 'setup_info');
+      if (!hasUsersQuery.data.exists) {
+        // No users - start onboarding
+        if (!appName) {
+          setMode('setup_restaurant');
+        } else {
+          setMode('setup_info');
+        }
+      } else {
+        // Users exist
+        if (restaurantInfoQuery.isSuccess && restaurantInfoQuery.data) {
+          // Sync store with backend if it's empty locally
+          if (!appName) {
+            setAppNameStore(restaurantInfoQuery.data.name);
+          }
+          setMode('login');
+        } else if (restaurantInfoQuery.isError || (restaurantInfoQuery.isSuccess && !restaurantInfoQuery.data)) {
+          // No restaurant record but users exist (unlikely but safe to handle)
+          setMode('login');
+        }
+        // If still loading restaurant info, stay in 'loading' or previous mode
+      }
     } else if (hasUsersQuery.isError) {
-      // If backend down, default to login
       setMode('login');
     }
-  }, [hasUsersQuery.isSuccess, hasUsersQuery.isError, hasUsersQuery.data]);
+  }, [hasUsersQuery.isSuccess, hasUsersQuery.isError, hasUsersQuery.data, appName, restaurantInfoQuery.isSuccess, restaurantInfoQuery.data]);
 
   // Animation values
   const shakeAnimation = useRef(new Animated.Value(0)).current;
@@ -111,6 +153,19 @@ export default function LoginScreen() {
     });
   };
 
+  const handleRestaurantSubmit = () => {
+    if (!newAppName.trim()) {
+      setErrorMsg("Please enter your restaurant name.");
+      triggerShake();
+      return;
+    }
+    setAppNameStore(newAppName);
+    setThemeColorStore(selectedTheme);
+    setErrorMsg('');
+    setMode('setup_info');
+    fadeAnim.setValue(0);
+  };
+
   const handleInfoSubmit = () => {
     if (!phone || phone.length < 10) {
       setErrorMsg("Please enter a valid phone number.");
@@ -145,7 +200,7 @@ export default function LoginScreen() {
         // Confirm PIN entry
         if (newPin === setupPin) {
           setIsAuthenticating(true);
-          setPinMutation.mutate({ pin: newPin, email, phone });
+          setPinMutation.mutate({ pin: newPin, email, phone, restaurantName: newAppName });
         } else {
           setPin('');
           setSetupPin('');
@@ -169,6 +224,7 @@ export default function LoginScreen() {
     switch (mode) {
       case 'loading': return 'Loading...';
       case 'login': return 'Enter Your PIN';
+      case 'setup_restaurant': return 'Create Your App';
       case 'setup_info': return 'Manager Details';
       case 'setup_pin': return 'Set Your PIN';
       case 'confirm_pin': return 'Confirm Your PIN';
@@ -177,6 +233,7 @@ export default function LoginScreen() {
 
   const getHelpText = () => {
     switch (mode) {
+      case 'setup_restaurant': return 'Give your restaurant app a unique name and style';
       case 'setup_info': return 'Provide contact details for the manager account';
       case 'setup_pin': return 'Choose a 4-digit PIN for quick access';
       case 'confirm_pin': return 'Enter the same PIN again to confirm';
@@ -195,26 +252,75 @@ export default function LoginScreen() {
           style={styles.content}
         >
           {/* Header */}
-          <Animated.View style={[styles.headerContainer, { opacity: fadeAnim }]}>
-            <View style={styles.logoCircle}>
+          <Animated.View style={[styles.headerContainer, { opacity: fadeAnim, marginBottom: isSmallScreen ? 20 : 32 }]}>
+            <View style={[styles.logoCircle, { 
+              width: isSmallScreen ? 60 : 80, 
+              height: isSmallScreen ? 60 : 80,
+              borderRadius: isSmallScreen ? 30 : 40 
+            }]}>
               <LinearGradient
-                colors={mode.includes('setup') || mode === 'confirm_pin' ? ['#8b5cf6', '#6d28d9'] : ['#10b981', '#059669']}
-                style={styles.logoGradient}
+                colors={mode.includes('setup') || mode === 'confirm_pin' ? [themeHexMap[selectedTheme], themeHexMap[selectedTheme] + 'CC'] : ['#10b981', '#059669']}
+                style={[styles.logoGradient, {
+                  width: isSmallScreen ? 46 : 60,
+                  height: isSmallScreen ? 46 : 60,
+                  borderRadius: isSmallScreen ? 23 : 30
+                }]}
               >
                 <Ionicons
-                  name={mode.includes('setup') || mode === 'confirm_pin' ? 'key' : 'restaurant'}
-                  size={32}
+                  name={mode === 'setup_restaurant' ? 'brush' : (mode.includes('setup') || mode === 'confirm_pin' ? 'key' : 'restaurant')}
+                  size={isSmallScreen ? 24 : 32}
                   color="#ffffff"
                 />
               </LinearGradient>
             </View>
-            <Text style={styles.brand}>{appName}</Text>
-            <Text style={styles.subtitle}>{getSubtitle()}</Text>
+            <Text style={[styles.brand, { fontSize: isSmallScreen ? 24 : 32 }]}>
+              {mode === 'setup_restaurant' ? 'TableBook' : (appName || 'TableBook')}
+            </Text>
+            <Text style={[styles.subtitle, { fontSize: isSmallScreen ? 13 : 15 }]}>{getSubtitle()}</Text>
             {getHelpText() ? (
-              <Text style={styles.helpText}>{getHelpText()}</Text>
+              <Text style={[styles.helpText, { fontSize: isSmallScreen ? 12 : 13 }]}>{getHelpText()}</Text>
             ) : null}
           </Animated.View>
 
+          {/* Setup Restaurant Mode */}
+          {mode === 'setup_restaurant' && (
+            <Animated.View style={[styles.infoForm, { opacity: fadeAnim }]}>
+              <View style={styles.inputGroup}>
+                <Ionicons name="restaurant-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Restaurant Name (e.g. Olive Cafe)"
+                  placeholderTextColor="#64748b"
+                  value={newAppName}
+                  onChangeText={setNewAppName}
+                />
+              </View>
+
+              <View style={styles.colorPickerContainer}>
+                <Text style={styles.label}>Choose Brand Theme</Text>
+                <View style={styles.colorRow}>
+                  {(Object.keys(themeHexMap) as ThemeColor[]).map(t => (
+                    <Pressable
+                      key={t}
+                      onPress={() => setSelectedTheme(t)}
+                      style={[
+                        styles.colorCircle,
+                        { backgroundColor: themeHexMap[t] },
+                        selectedTheme === t && styles.colorCircleActive
+                      ]}
+                    />
+                  ))}
+                </View>
+              </View>
+              
+              <Pressable style={styles.continueBtn} onPress={handleRestaurantSubmit}>
+                <LinearGradient colors={[themeHexMap[selectedTheme], themeHexMap[selectedTheme] + 'CC']} style={styles.continueBtnGradient}>
+                  <Text style={styles.continueBtnText}>Next Step</Text>
+                  <Ionicons name="arrow-forward" size={18} color="#fff" />
+                </LinearGradient>
+              </Pressable>
+            </Animated.View>
+          )}
           {/* Setup Info Mode */}
           {mode === 'setup_info' && (
             <Animated.View style={[styles.infoForm, { opacity: fadeAnim }]}>
@@ -244,7 +350,7 @@ export default function LoginScreen() {
               </View>
               
               <Pressable style={styles.continueBtn} onPress={handleInfoSubmit}>
-                <LinearGradient colors={['#8b5cf6', '#6d28d9']} style={styles.continueBtnGradient}>
+                <LinearGradient colors={[themeHexMap[selectedTheme], themeHexMap[selectedTheme] + 'CC']} style={styles.continueBtnGradient}>
                   <Text style={styles.continueBtnText}>Continue to PIN</Text>
                   <Ionicons name="arrow-forward" size={18} color="#fff" />
                 </LinearGradient>
@@ -255,17 +361,18 @@ export default function LoginScreen() {
           {/* PIN Input Modes */}
           {['login', 'setup_pin', 'confirm_pin'].includes(mode) && (
             <Animated.View style={{ transform: [{ translateX: shakeAnimation }] }}>
-              <View style={styles.pinDisplay}>
+              <View style={[styles.pinDisplay, { gap: isSmallScreen ? 12 : 24 }]}>
                 {[0, 1, 2, 3].map((i) => {
                   const isActive = pin.length > i;
-                  const dotColor = mode === 'setup_pin' || mode === 'confirm_pin' ? '#8b5cf6' : '#10b981';
+                  const dotColor = mode === 'setup_pin' || mode === 'confirm_pin' ? themeHexMap[selectedTheme] : '#10b981';
                   return (
                     <View
                       key={i}
                       style={[
                         styles.pinDot,
                         isActive && [styles.pinDotActive, { backgroundColor: dotColor, borderColor: dotColor }],
-                        errorMsg ? styles.pinDotError : null
+                        errorMsg ? styles.pinDotError : null,
+                        { width: isSmallScreen ? 16 : 20, height: isSmallScreen ? 16 : 20, borderRadius: isSmallScreen ? 8 : 10 }
                       ]}
                     />
                   );
@@ -321,6 +428,11 @@ export default function LoginScreen() {
                       }}
                       style={({ pressed }) => [
                         styles.numBtn,
+                        { 
+                          width: isSmallScreen ? 65 : 80, 
+                          height: isSmallScreen ? 65 : 80, 
+                          borderRadius: isSmallScreen ? 32.5 : 40 
+                        },
                         !btn && styles.numBtnHidden,
                         pressed && btn && styles.numBtnPressed,
                       ]}
@@ -415,8 +527,8 @@ const styles = StyleSheet.create({
   },
   // Form Inputs
   infoForm: {
-    width: width * 0.85,
-    maxWidth: 340,
+    width: '90%',
+    maxWidth: 360,
     gap: Spacing.md,
     marginBottom: Spacing.xl,
   },
@@ -521,8 +633,8 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   numpadContainer: {
-    width: width * 0.85,
-    maxWidth: 340,
+    width: '90%',
+    maxWidth: 360,
   },
   row: {
     flexDirection: 'row',
@@ -530,14 +642,35 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   numBtn: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.03)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  colorPickerContainer: {
+    marginTop: 8,
+  },
+  label: {
+    color: '#94a3b8',
+    fontSize: 14,
+    marginBottom: 12,
+  },
+  colorRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  colorCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 3,
+    borderColor: 'transparent',
+  },
+  colorCircleActive: {
+    borderColor: '#fff',
+    transform: [{ scale: 1.1 }],
   },
   numBtnHidden: {
     opacity: 0,

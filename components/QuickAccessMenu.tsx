@@ -27,7 +27,7 @@ export function QuickAccessButton() {
     <>
       <Pressable style={styles.logoBtn} onPress={() => setVisible(true)}>
         <Image
-          source={require('../assets/images/app-logo.png')}
+          source={require('../assets/images/applogo.png')}
           style={styles.logoImg}
         />
       </Pressable>

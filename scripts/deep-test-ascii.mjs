@@ -79,8 +79,24 @@ async function run() {
     return r.ok ? ok(`null user = expected`) : fail(`HTTP ${r.status}`);
   });
 
+  await test("auth.hasUsers (check if setup needed)", async () => {
+    const r = await rpc("auth.hasUsers");
+    const d = data(r);
+    if (d && !d.exists) {
+      // Perform first-time setup
+      const setup = await rpc("auth.setPin", {
+        pin: "1111",
+        name: "Test Manager",
+        email: "test@example.com",
+        restaurantName: "Test Restaurant"
+      }, "POST");
+      return setup.ok ? ok(`Fresh setup performed with PIN 1111`) : fail(`Setup failed: ${ex(setup.data)}`);
+    }
+    return ok(`Users exist: ${d?.exists}`);
+  });
+
   await test("auth.login (manager)", async () => {
-    const r = await rpc("auth.login", { pin: "1234" }, "POST");
+    const r = await rpc("auth.login", { pin: "1111" }, "POST");
     const d = data(r);
     return d?.success ? ok(`name=${d.user?.name} role=${d.user?.role}`) : fail(ex(r.data));
   });
@@ -116,7 +132,15 @@ async function run() {
 
   await test("table.listByRestaurant", async () => {
     const r = await rpc("table.listByRestaurant", { restaurantId: "res_default" });
-    const d = data(r); const e = err(r);
+    const d = data(r);
+    if (d && d.length === 0) {
+      // Create test tables
+      await rpc("table.addTable", { restaurantId: "res_default", capacity: 4 }, "POST");
+      await rpc("table.addTable", { restaurantId: "res_default", capacity: 2 }, "POST");
+      await rpc("table.addTable", { restaurantId: "res_default", capacity: 6 }, "POST");
+      return ok(`3 test tables created`);
+    }
+    const e = err(r);
     if (e) return fail(`[${e.data?.code}] ${e.message?.slice(0,60)}`);
     if (!Array.isArray(d)) return fail(`Not array: ${ex(r.data)}`);
     return ok(`${d.length} tables — statuses: ${[...new Set(d.map(t=>t.status))].join(", ")}`);

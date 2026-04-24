@@ -16,7 +16,7 @@ interface SaaSState {
 }
 
 export const useSaaSStore = create<SaaSState>((set, get) => ({
-  appName: 'TableBook Setup',
+  appName: '',
   themeColor: 'emerald',
   activeModel: 'qwen2.5:0.5b',
   isLoaded: false,

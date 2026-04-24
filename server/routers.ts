@@ -13,8 +13,8 @@ import { menuRouter } from "./menuRouter";
 import { webhookRouter } from "./webhookRouter";
 import { z } from "zod";
 import { db } from "./db";
-import { users } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
+import { users, restaurants } from "../drizzle/schema";
 import { sdk } from "./_core/sdk";
 import { aiRouter } from "./aiRouter";
 import { reportRouter } from "./reportRouter";
@@ -43,13 +43,32 @@ export const appRouter = router({
         pin: z.string().length(4), 
         name: z.string().optional(),
         email: z.string().email().optional().or(z.literal('')),
-        phone: z.string().optional()
+        phone: z.string().optional(),
+        restaurantName: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         const now = new Date().toISOString();
         const openId = `manager_${Date.now()}`;
+        const restaurantId = 'res_default';
+
+        // 1. Ensure restaurant exists
+        const existingRes = await db.select().from(restaurants).where(eq(restaurants.id, restaurantId)).limit(1);
+        if (existingRes.length === 0) {
+          await db.insert(restaurants).values({
+            id: restaurantId,
+            name: input.restaurantName || 'TableBook Restaurant',
+            slug: 'default',
+            createdAt: now,
+          });
+        } else if (input.restaurantName) {
+          // Update name if provided during setup
+          await db.update(restaurants).set({ name: input.restaurantName }).where(eq(restaurants.id, restaurantId));
+        }
+
+        // 2. Create user
         await db.insert(users).values({
           openId,
+          restaurantId,
           name: input.name || 'Manager',
           email: input.email || null,
           phone: input.phone || null,

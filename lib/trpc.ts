@@ -22,8 +22,9 @@ function getHostName(): string {
 const host = getHostName();
 const port = process.env.EXPO_PUBLIC_SERVER_PORT || '3000';
 
-// Use localhost for web, IP for mobile, and override with production URL if needed
-const baseUrl = host === 'localhost' ? `http://localhost:${port}` : `http://${host}:${port}`;
+// Use environment variable if provided (for permanent cloud/tunnel URLs), otherwise fallback to local IP
+const envUrl = process.env.EXPO_PUBLIC_API_URL;
+const baseUrl = envUrl || (host === 'localhost' ? `http://localhost:${port}` : `http://${host}:${port}`);
 
 export const HttpUrl = `${baseUrl}/api/trpc`;
 export const WsUrl = baseUrl.replace('http', 'ws') + '/api/trpc';

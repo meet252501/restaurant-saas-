@@ -310,7 +310,7 @@ export const bookingRouter = router({
   updateStatus: publicProcedure
     .input(z.object({
       id: z.string(),
-      status: z.enum(["pending", "confirmed", "seated", "done", "cancelled", "no_show"]),
+      status: z.enum(["pending", "confirmed", "seated", "done", "cancelled", "no_show", "checked_in", "completed"]),
     }))
     .mutation(async ({ input }) => {
       if (isMockMode()) {
@@ -338,7 +338,11 @@ export const bookingRouter = router({
         ee.emit(EVENTS.BOOKINGS_CHANGED);
         return { success: true };
       }
-      await db.update(bookings).set({ status: input.status }).where(eq(bookings.id, input.id));
+      let dbStatus = input.status;
+      if (dbStatus === "checked_in") dbStatus = "seated";
+      if (dbStatus === "completed") dbStatus = "done";
+
+      await db.update(bookings).set({ status: dbStatus as any }).where(eq(bookings.id, input.id));
       ee.emit(EVENTS.BOOKINGS_CHANGED);
       return { success: true };
     }),

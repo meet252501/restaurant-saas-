@@ -296,7 +296,7 @@ export default function SettingsScreen() {
           style={[styles.saveBtn, { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.surfaceBorder, marginTop: Spacing.xl }]}
           onPress={() => {
             setAppName('');
-            router.replace('/setup');
+            router.replace('/login');
           }}
         >
           <Ionicons name="refresh" size={20} color={Colors.textSecondary} />

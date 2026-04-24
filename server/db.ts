@@ -1,7 +1,11 @@
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { drizzle as drizzleLibsql } from 'drizzle-orm/libsql';
+import { createClient } from '@libsql/client';
 import * as schema from '../drizzle/schema';
 import path from 'path';
+import dotenv from 'dotenv';
+dotenv.config();
 
 /**
  * Returns true when neither DATABASE_URL nor DATABASE_PATH is provided.
@@ -9,7 +13,7 @@ import path from 'path';
  * because our SQLite DB uses DATABASE_PATH (not DATABASE_URL).
  */
 export function isMockMode(): boolean {
-  return !process.env.DATABASE_URL && !process.env.DATABASE_PATH;
+  return !process.env.DATABASE_URL && !process.env.DATABASE_PATH && !process.env.TURSO_DATABASE_URL;
 }
 
 const DB_PATH = process.env.DATABASE_PATH
@@ -22,16 +26,33 @@ let _sqlite: Database.Database | null = null;
 
 export function getDb() {
   if (!_db) {
-    try {
-      _sqlite = new Database(DB_PATH);
-      // Enable WAL mode for better concurrent read performance
-      _sqlite.pragma('journal_mode = WAL');
-      _sqlite.pragma('foreign_keys = ON');
-      _db = drizzle(_sqlite, { schema });
-      console.log(`[DB] Connected to SQLite at ${DB_PATH}`);
-    } catch (error) {
-      console.warn('[DB] Failed to open SQLite:', error);
-      _db = null;
+    const tursoUrl = process.env.TURSO_DATABASE_URL;
+    const tursoToken = process.env.TURSO_AUTH_TOKEN;
+
+    if (tursoUrl && tursoUrl.startsWith('libsql://')) {
+      try {
+        const client = createClient({
+          url: tursoUrl,
+          authToken: tursoToken,
+        });
+        _db = drizzleLibsql(client, { schema }) as any;
+        console.log(`[DB] Connected to TURSO CLOUD at ${tursoUrl}`);
+      } catch (error) {
+        console.warn('[DB] Failed to connect to Turso:', error);
+      }
+    }
+
+    if (!_db) {
+      try {
+        _sqlite = new Database(DB_PATH);
+        _sqlite.pragma('journal_mode = WAL');
+        _sqlite.pragma('foreign_keys = ON');
+        _db = drizzle(_sqlite, { schema }) as any;
+        console.log(`[DB] Connected to LOCAL SQLite at ${DB_PATH}`);
+      } catch (error) {
+        console.warn('[DB] Failed to open local SQLite:', error);
+        _db = null;
+      }
     }
   }
   return _db;

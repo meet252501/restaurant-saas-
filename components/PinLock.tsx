@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, Modal } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { FadeIn, SlideInDown } from 'react-native-reanimated';
+import Animated, { FadeIn } from 'react-native-reanimated';
 
 interface PinLockProps {
   isVisible: boolean;
@@ -11,6 +11,11 @@ interface PinLockProps {
 }
 
 export const PinLock: React.FC<PinLockProps> = ({ isVisible, correctPin, onSuccess, onClose }) => {
+  const { width } = useWindowDimensions();
+  const isSmallScreen = width < 360;
+  const numpadWidth = Math.min(width * 0.85, 400);
+  const buttonSize = isSmallScreen ? 60 : 75;
+
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
 
@@ -33,16 +38,19 @@ export const PinLock: React.FC<PinLockProps> = ({ isVisible, correctPin, onSucce
 
   return (
     <Modal visible={isVisible} animationType="fade" transparent={true}>
-      <View className="flex-1 bg-gray-900/95 justify-center px-8">
-        <Animated.View entering={FadeIn} className="items-center mb-12">
-          <View className="w-20 h-20 bg-primary-500 rounded-full items-center justify-center mb-4">
-            <Ionicons name="lock-closed" size={40} color="white" />
+      <View className="flex-1 bg-gray-900/95 justify-center items-center px-4">
+        <Animated.View entering={FadeIn} className="items-center mb-8">
+          <View 
+            style={{ width: isSmallScreen ? 60 : 80, height: isSmallScreen ? 60 : 80 }}
+            className="bg-primary-500 rounded-full items-center justify-center mb-4"
+          >
+            <Ionicons name="lock-closed" size={isSmallScreen ? 30 : 40} color="white" />
           </View>
           <Text className="text-white text-2xl font-black">Staff Security</Text>
-          <Text className="text-gray-400 mt-2">Enter PIN to access Owner tools</Text>
+          <Text className="text-gray-400 mt-2 text-center">Enter PIN to access Owner tools</Text>
         </Animated.View>
 
-        <View className="flex-row justify-center space-x-6 mb-12">
+        <View className="flex-row justify-center space-x-6 mb-10">
           {[1, 2, 3, 4].map((i) => (
             <View 
               key={i} 
@@ -51,7 +59,7 @@ export const PinLock: React.FC<PinLockProps> = ({ isVisible, correctPin, onSucce
           ))}
         </View>
 
-        <View className="flex-row flex-wrap justify-between">
+        <View style={{ width: numpadWidth }} className="flex-row flex-wrap justify-between">
           {["1", "2", "3", "4", "5", "6", "7", "8", "9", "X", "0", "C"].map((btn) => (
             <TouchableOpacity 
               key={btn}
@@ -60,7 +68,8 @@ export const PinLock: React.FC<PinLockProps> = ({ isVisible, correctPin, onSucce
                 else if (btn === "X") onClose();
                 else handlePress(btn);
               }}
-              className="w-[28%] aspect-square items-center justify-center mb-6 rounded-full bg-white/10"
+              style={{ width: buttonSize, height: buttonSize }}
+              className="items-center justify-center mb-4 rounded-full bg-white/10"
             >
               <Text className="text-white text-2xl font-bold">{btn}</Text>
             </TouchableOpacity>
