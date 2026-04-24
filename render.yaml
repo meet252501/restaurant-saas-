@@ -6,7 +6,7 @@ services:
     region: singapore
     plan: starter
     buildCommand: pnpm install && pnpm build:server
-    startCommand: node dist/server/_core/index.js
+    startCommand: node dist/index.mjs
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
