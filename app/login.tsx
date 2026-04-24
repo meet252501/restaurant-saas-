@@ -13,7 +13,7 @@ import { useSaaSStore } from '../lib/saas-store';
 
 
 
-type Mode = 'loading' | 'login' | 'setup_restaurant' | 'setup_info' | 'setup_pin' | 'confirm_pin';
+type Mode = 'loading' | 'login' | 'setup_restaurant' | 'setup_info' | 'setup_pin' | 'confirm_pin' | 'connection_error';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -74,16 +74,16 @@ export default function LoginScreen() {
             setAppNameStore(restaurantInfoQuery.data.name);
           }
           setMode('login');
-        } else if (restaurantInfoQuery.isError || (restaurantInfoQuery.isSuccess && !restaurantInfoQuery.data)) {
+        } else if (restaurantInfoQuery.isError) {
           // No restaurant record but users exist (unlikely but safe to handle)
           setMode('login');
         }
         // If still loading restaurant info, stay in 'loading' or previous mode
       }
     } else if (hasUsersQuery.isError) {
-      setMode('login');
+      setMode('connection_error');
     }
-  }, [hasUsersQuery.isSuccess, hasUsersQuery.isError, hasUsersQuery.data, appName, restaurantInfoQuery.isSuccess, restaurantInfoQuery.data]);
+  }, [hasUsersQuery.isSuccess, hasUsersQuery.isError, hasUsersQuery.data, appName, restaurantInfoQuery.isSuccess, restaurantInfoQuery.isError, restaurantInfoQuery.data]);
 
   // Animation values
   const shakeAnimation = useRef(new Animated.Value(0)).current;
@@ -228,6 +228,7 @@ export default function LoginScreen() {
       case 'setup_info': return 'Manager Details';
       case 'setup_pin': return 'Set Your PIN';
       case 'confirm_pin': return 'Confirm Your PIN';
+      case 'connection_error': return 'Network Error';
     }
   };
 
@@ -237,6 +238,7 @@ export default function LoginScreen() {
       case 'setup_info': return 'Provide contact details for the manager account';
       case 'setup_pin': return 'Choose a 4-digit PIN for quick access';
       case 'confirm_pin': return 'Enter the same PIN again to confirm';
+      case 'connection_error': return 'Failed to connect to TableBook cloud';
       default: return '';
     }
   };
@@ -453,6 +455,25 @@ export default function LoginScreen() {
           {mode === 'loading' && (
             <View style={styles.loadingContainer}>
               <Text style={styles.loadingText}>Connecting...</Text>
+            </View>
+          )}
+
+          {mode === 'connection_error' && (
+            <View style={styles.errorView}>
+              <Ionicons name="cloud-offline-outline" size={64} color="#f43f5e" style={{ marginBottom: 20 }} />
+              <Text style={styles.errorTitle}>Connection Failed</Text>
+              <Text style={styles.errorSubtitle}>
+                Could not connect to the database. Please check your internet or tunnel status.
+              </Text>
+              <Pressable 
+                style={styles.retryBtn} 
+                onPress={() => {
+                  setMode('loading');
+                  hasUsersQuery.refetch();
+                }}
+              >
+                <Text style={styles.retryBtnText}>Retry Connection</Text>
+              </Pressable>
             </View>
           )}
 
@@ -700,6 +721,41 @@ const styles = StyleSheet.create({
   supportText: {
     color: '#22c55e',
     fontSize: 14,
+    fontWeight: '600',
+  },
+  errorView: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    backgroundColor: 'rgba(244, 63, 94, 0.05)',
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(244, 63, 94, 0.1)',
+    width: '90%',
+    maxWidth: 360,
+  },
+  errorTitle: {
+    ...Typography.h3,
+    color: '#f8fafc',
+    marginBottom: 8,
+  },
+  errorSubtitle: {
+    ...Typography.body,
+    color: '#94a3b8',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  retryBtn: {
+    backgroundColor: '#f43f5e',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    ...Shadows.sm,
+  },
+  retryBtnText: {
+    color: '#fff',
+    fontSize: 15,
     fontWeight: '600',
   }
 });
