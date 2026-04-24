@@ -75,8 +75,8 @@ async function startServer() {
     next();
   });
 
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  app.use(express.json({ limit: "500kb" }));
+  app.use(express.urlencoded({ limit: "500kb", extended: true }));
 
   registerOAuthRoutes(app);
 

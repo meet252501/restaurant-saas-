@@ -86,14 +86,15 @@ export const appRouter = router({
       }),
 
     /** Change PIN (requires old PIN for verification) */
-    changePin: publicProcedure
+    changePin: protectedProcedure
       .input(z.object({ oldPin: z.string().length(4), newPin: z.string().length(4) }))
-      .mutation(async ({ input }) => {
-        const matchingUsers = await db.select().from(users).where(eq(users.pinCode, input.oldPin)).limit(1);
-        if (matchingUsers.length === 0) {
+      .mutation(async ({ input, ctx }) => {
+        // Verify current user's PIN
+        const user = await db.getUserByOpenId(ctx.user.openId);
+        if (!user || user.pinCode !== input.oldPin) {
           throw new Error("Current PIN is incorrect.");
         }
-        const user = matchingUsers[0];
+        
         await db.update(users).set({ pinCode: input.newPin }).where(eq(users.id, user.id));
         return { success: true };
       }),
