@@ -29,7 +29,9 @@ export function getDb() {
     const tursoUrl = process.env.TURSO_DATABASE_URL;
     const tursoToken = process.env.TURSO_AUTH_TOKEN;
 
-    if (tursoUrl && tursoUrl.startsWith('libsql://')) {
+    const isPlaceholderUrl = !tursoUrl || tursoUrl.includes('your-db') || tursoUrl === 'libsql://your-db-name.turso.io';
+
+    if (!isPlaceholderUrl && tursoUrl?.startsWith('libsql://')) {
       try {
         const client = createClient({
           url: tursoUrl,
