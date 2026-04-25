@@ -1,4 +1,4 @@
-import { Booking, Table, Customer } from "../drizzle/schema";
+import { Booking, Table, Customer } from "./db";
 
 // Real table layout for Green Apple Restaurant - "All You Can Eat", Sector 16, Gandhinagar
 export const MOCK_TABLES: any[] = [

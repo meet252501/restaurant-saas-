@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { router, publicProcedure, protectedProcedure } from "./_core/trpc";
-import { bookings, customers, tables } from "../drizzle/schema";
+import { bookings, customers, tables } from "./db";
 import { eq, and, sql, desc, gte, lte } from "drizzle-orm";
 import { db, isMockMode } from "./db";
 import { MOCK_BOOKINGS, MOCK_CUSTOMERS, MOCK_TABLES } from "./mockData";
-import { Booking, Table } from "../drizzle/schema";
+import { Booking, Table } from "./db";
 
 /**
  * ENHANCED ANALYTICS ROUTER

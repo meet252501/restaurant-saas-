@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "./_core/trpc";
 import { db } from "./db";
-import { deliveryOrders, bookings } from "../drizzle/schema";
+import { deliveryOrders, bookings } from "./db";
 import { eq, and, gte, lte, sql } from "drizzle-orm";
 import { NotificationService } from "./_core/notification";
 

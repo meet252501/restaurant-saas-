@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "./_core/trpc";
-import { tables, bookings } from "../drizzle/schema";
+import { tables, bookings } from "./db";
 import { eq, and, sql } from "drizzle-orm";
 import { db, isMockMode } from "./db";
 import { MOCK_TABLES, MOCK_BOOKINGS } from "./mockData";

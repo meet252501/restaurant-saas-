@@ -8,7 +8,7 @@
 import { z } from "zod";
 import { router, protectedProcedure, adminProcedure } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
-import { reviews } from "../drizzle/schema";
+import { reviews } from "./db";
 import { db } from "./db";
 import { eq, desc, and } from "drizzle-orm";
 

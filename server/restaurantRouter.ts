@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { router, publicProcedure, protectedProcedure } from "./_core/trpc";
 import { getDb } from "./db";
-import { restaurants } from "../drizzle/schema";
+import { restaurants } from "./db";
 import { eq } from "drizzle-orm";
 
 export const restaurantRouter = router({

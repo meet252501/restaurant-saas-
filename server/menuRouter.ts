@@ -6,7 +6,7 @@
 
 import { z } from "zod";
 import { router, publicProcedure, protectedProcedure, adminProcedure } from "./_core/trpc";
-import { menuItems, MenuItem as DbMenuItem } from "../drizzle/schema";
+import { menuItems, MenuItem as DbMenuItem } from "./db";
 import { getDb } from "./db";
 import { eq, and } from "drizzle-orm";
 

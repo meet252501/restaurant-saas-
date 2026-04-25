@@ -1,5 +1,5 @@
 import { db, isMockMode } from "./db";
-import { bookings, deliveryOrders, reviews } from "../drizzle/schema";
+import { bookings, deliveryOrders, reviews } from "./db";
 import { sql } from "drizzle-orm";
 
 /**

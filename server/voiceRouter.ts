@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { router, publicProcedure, protectedProcedure } from "./_core/trpc";
 import { getDb } from "./db";
-import { bookings, customers } from "../drizzle/schema";
+import { bookings, customers } from "./db";
 import { eq, and } from "drizzle-orm";
 // VoiceAIService removed. Using inline stub.
 const VoiceAIService = {

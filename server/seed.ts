@@ -4,7 +4,7 @@
  * For full restaurant/table seeding, use: pnpm db:seed (scripts/seed.ts)
  */
 import { getDb } from "./db";
-import { users } from "../drizzle/schema";
+import { users } from "./db";
 
 async function seed() {
   console.log("Seeding users...");

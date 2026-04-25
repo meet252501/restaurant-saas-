@@ -1,7 +1,7 @@
-﻿import { z } from "zod";
+import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, publicProcedure, protectedProcedure } from "./_core/trpc";
-import { bookings, customers, tables } from "../drizzle/schema";
+import { bookings, customers, tables } from "./db";
 import { eq, and, sql, gte, lte } from "drizzle-orm";
 import { db, isMockMode } from "./db";
 import { MOCK_TABLES, MOCK_BOOKINGS, MOCK_CUSTOMERS } from "./mockData";
@@ -297,7 +297,7 @@ export const bookingRouter = router({
         input.partySize
       ).catch(err => console.error("Notification failed:", err));
 
-      // ðŸ”— Sync to Google Sheets + alert manager
+      // 🔗 Sync to Google Sheets + alert manager
       const bookingRow = {
         id: newBooking.id,
         customerName: input.customerName || "Guest",

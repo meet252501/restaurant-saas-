@@ -8,7 +8,7 @@ import { z } from "zod";
 import { router, protectedProcedure } from "./_core/trpc";
 import { MOCK_BOOKINGS, MOCK_TABLES } from "./mockData";
 import { getDb, isMockMode } from "./db";
-import { bookings, tables, deliveryOrders } from "../drizzle/schema";
+import { bookings, tables, deliveryOrders } from "./db";
 import { eq, sql } from "drizzle-orm";
 import ollama from "ollama";
 

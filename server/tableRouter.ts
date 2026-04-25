@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { router, publicProcedure, protectedProcedure, TRPCError } from "./_core/trpc";
-import { tables } from "../drizzle/schema";
+import { tables } from "./db";
 import { eq, and } from "drizzle-orm";
 import { db, isMockMode } from "./db";
 import { observable } from "@trpc/server/observable";

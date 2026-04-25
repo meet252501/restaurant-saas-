@@ -87,6 +87,28 @@ export const db = new Proxy({} as any, {
   },
 });
 
+/**
+ * Universal Schema Switcher
+ */
+export const schema = new Proxy({} as any, {
+  get(_target, prop) {
+    const isPostgres = process.env.DATABASE_URL?.startsWith('postgres');
+    const active = isPostgres ? pgSchema : sqliteSchema;
+    return (active as any)[prop];
+  }
+}) as typeof pgSchema;
+
+// Individually export proxies for all tables to maintain compatibility with existing router imports
+export const users = new Proxy({} as any, { get: (_, prop) => (schema.users as any)[prop] });
+export const restaurants = new Proxy({} as any, { get: (_, prop) => (schema.restaurants as any)[prop] });
+export const tables = new Proxy({} as any, { get: (_, prop) => (schema.tables as any)[prop] });
+export const bookings = new Proxy({} as any, { get: (_, prop) => (schema.bookings as any)[prop] });
+export const customers = new Proxy({} as any, { get: (_, prop) => (schema.customers as any)[prop] });
+export const menuItems = new Proxy({} as any, { get: (_, prop) => (schema.menuItems as any)[prop] });
+export const deliveryOrders = new Proxy({} as any, { get: (_, prop) => (schema.deliveryOrders as any)[prop] });
+export const reviews = new Proxy({} as any, { get: (_, prop) => (schema.reviews as any)[prop] });
+export const staff = new Proxy({} as any, { get: (_, prop) => (schema.staff as any)[prop] });
+
 export function closeDb() {
   if (_sqlite) {
     _sqlite.close();
@@ -107,11 +129,8 @@ import { eq } from 'drizzle-orm';
 export async function getUserByOpenId(openId: string) {
   const instance = getDb();
   if (!instance) return null;
-  
-  const schema = process.env.DATABASE_URL?.startsWith('postgres') ? pgSchema : sqliteSchema;
-  
   try {
-    const result = await instance.select().from(schema.users).where(eq(schema.users.openId, openId)).limit(1);
+    const result = await instance.select().from(users).where(eq(users.openId, openId)).limit(1);
     return result[0] ?? null;
   } catch {
     return null;
@@ -120,11 +139,9 @@ export async function getUserByOpenId(openId: string) {
 
 export async function upsertUser(data: any) {
   const instance = db;
-  const schema = process.env.DATABASE_URL?.startsWith('postgres') ? pgSchema : sqliteSchema;
   const now = new Date().toISOString();
-  
   await instance
-    .insert(schema.users)
+    .insert(users)
     .values({
       openId: data.openId,
       name: data.name ?? null,
@@ -134,7 +151,7 @@ export async function upsertUser(data: any) {
       createdAt: now,
     })
     .onConflictDoUpdate({
-      target: schema.users.openId,
+      target: users.openId,
       set: {
         ...(data.name !== undefined && { name: data.name }),
         ...(data.email !== undefined && { email: data.email }),
