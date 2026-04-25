@@ -36,13 +36,10 @@ export default function StaffDashboardScreen() {
 
   // Queries
   const { data: tableBoard, refetch: refetchBoard } = trpc.staff.getTableBoard.useQuery({
-    restaurantId: RESTAURANT_ID,
     date: selectedDate,
   });
 
-  const { data: todaySummary } = trpc.staff.getTodaySummary.useQuery({
-    restaurantId: RESTAURANT_ID,
-  });
+  const { data: todaySummary } = trpc.staff.getTodaySummary.useQuery(undefined);
 
   // Mutations
   const updateTableStatusMutation = trpc.staff.updateTableStatus.useMutation({

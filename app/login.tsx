@@ -8,7 +8,9 @@ import * as Haptics from 'expo-haptics';
 import { Colors, Spacing, Typography, Radius, Shadows } from '../lib/theme';
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
 import { trpc } from '../lib/trpc';
-import { useSaaSStore } from '../lib/saas-store';
+import { useSaaSStore, ThemeColor } from '../lib/saas-store';
+import { HttpUrl, setBaseUrl } from '../lib/trpc';
+
 
 
 
@@ -27,6 +29,8 @@ export default function LoginScreen() {
   
   const [errorMsg, setErrorMsg] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [showServerSettings, setShowServerSettings] = useState(false);
+  const [customServerUrl, setCustomServerUrl] = useState(HttpUrl.replace('/api/trpc', ''));
   const appName = useSaaSStore(s => s.appName);
   const setAppNameStore = useSaaSStore(s => s.setAppName);
   const setThemeColorStore = useSaaSStore(s => s.setThemeColor);
@@ -458,13 +462,6 @@ export default function LoginScreen() {
             </View>
           )}
 
-          {mode === 'connection_error' && (
-            <View style={styles.errorView}>
-              <Ionicons name="cloud-offline-outline" size={64} color="#f43f5e" style={{ marginBottom: 20 }} />
-              <Text style={styles.errorTitle}>Connection Failed</Text>
-              <Text style={styles.errorSubtitle}>
-                Could not connect to the database. Please check your internet or tunnel status.
-              </Text>
               <Pressable 
                 style={styles.retryBtn} 
                 onPress={() => {
@@ -474,6 +471,56 @@ export default function LoginScreen() {
               >
                 <Text style={styles.retryBtnText}>Retry Connection</Text>
               </Pressable>
+
+              <Pressable 
+                style={styles.settingsLink} 
+                onPress={() => setShowServerSettings(true)}
+              >
+                <Ionicons name="settings-outline" size={16} color="#64748b" />
+                <Text style={styles.settingsLinkText}>Server Settings</Text>
+              </Pressable>
+            </View>
+          )}
+
+          {/* Server Settings Modal (Simple overlay for now) */}
+          {showServerSettings && (
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                <Text style={styles.modalTitle}>Server Settings</Text>
+                <Text style={styles.modalDesc}>Enter your tunnel or cloud URL</Text>
+                
+                <View style={styles.inputGroup}>
+                  <Ionicons name="link-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="https://your-url.loca.lt"
+                    placeholderTextColor="#64748b"
+                    value={customServerUrl}
+                    onChangeText={setCustomServerUrl}
+                    autoCapitalize="none"
+                  />
+                </View>
+
+                <View style={styles.modalBtns}>
+                  <Pressable 
+                    style={[styles.modalBtn, styles.modalBtnSecondary]} 
+                    onPress={() => setShowServerSettings(false)}
+                  >
+                    <Text style={styles.modalBtnTextSecondary}>Cancel</Text>
+                  </Pressable>
+                  <Pressable 
+                    style={[styles.modalBtn, styles.modalBtnPrimary]} 
+                    onPress={() => {
+                      setBaseUrl(customServerUrl);
+                      setShowServerSettings(false);
+                      setMode('loading');
+                      hasUsersQuery.refetch();
+                    }}
+                  >
+                    <Text style={styles.modalBtnTextPrimary}>Connect</Text>
+                  </Pressable>
+                </View>
+              </View>
             </View>
           )}
 
@@ -735,7 +782,7 @@ const styles = StyleSheet.create({
     maxWidth: 360,
   },
   errorTitle: {
-    ...Typography.h3,
+    ...Typography.heading,
     color: '#f8fafc',
     marginBottom: 8,
   },
@@ -756,6 +803,71 @@ const styles = StyleSheet.create({
   retryBtnText: {
     color: '#fff',
     fontSize: 15,
+    fontWeight: '600',
+  },
+  settingsLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 20,
+    opacity: 0.7,
+  },
+  settingsLinkText: {
+    color: '#64748b',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  modalOverlay: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2000,
+  },
+  modalContent: {
+    width: '85%',
+    backgroundColor: '#1e293b',
+    borderRadius: 24,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  modalTitle: {
+    ...Typography.heading,
+    color: '#fff',
+    fontSize: 20,
+    marginBottom: 4,
+  },
+  modalDesc: {
+    color: '#94a3b8',
+    fontSize: 14,
+    marginBottom: 20,
+  },
+  modalBtns: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 24,
+  },
+  modalBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalBtnPrimary: {
+    backgroundColor: '#10b981',
+  },
+  modalBtnSecondary: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  modalBtnTextPrimary: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  modalBtnTextSecondary: {
+    color: '#94a3b8',
     fontWeight: '600',
   }
 });

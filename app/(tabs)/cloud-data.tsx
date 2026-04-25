@@ -137,7 +137,7 @@ export default function CloudDataScreen() {
   const [exportFormat, setExportFormat] = useState<ExportFormat>('xlsx');
 
   const { data: rawData, isLoading, error, refetch, isFetching } = trpc.cloudData.getRecent.useQuery(
-    { restaurantId },
+    { dataType: selectedType === 'all' ? 'all' : selectedType },
     { retry: false }
   );
 

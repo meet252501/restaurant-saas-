@@ -108,27 +108,27 @@ export default function TodayScreen() {
   // ── tRPC queries ────────────────────────────────────────────────────────────
   const { data, isLoading, error, refetch, isRefetching } =
     trpc.dailySnapshot.getSnapshot.useQuery(
-      { restaurantId: RESTAURANT_ID },
+      {},
       { refetchInterval: 60000, retry: 1 }
     );
 
   const { data: kpiData } = trpc.analytics.todayKPIs.useQuery(
-    { restaurantId: RESTAURANT_ID },
+    undefined,
     { retry: 1 }
   );
 
   const { data: trendsData } = trpc.analytics.thirtyDayTrends.useQuery(
-    { restaurantId: RESTAURANT_ID },
+    undefined,
     { retry: 1 }
   );
 
   const { data: perfData } = trpc.analytics.performanceMetrics.useQuery(
-    { restaurantId: RESTAURANT_ID, days: 30 },
+    { days: 30 },
     { retry: 1 }
   );
 
   const { data: topCx } = trpc.analytics.topCustomers.useQuery(
-    { restaurantId: RESTAURANT_ID, limit: 5 },
+    { limit: 5 },
     { retry: 1 }
   );
 

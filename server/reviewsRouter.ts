@@ -6,9 +6,10 @@
  */
 
 import { z } from "zod";
-import { router, publicProcedure, adminProcedure, protectedProcedure } from "./_core/trpc";
+import { router, protectedProcedure, adminProcedure } from "./_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { reviews } from "../drizzle/schema";
-import { getDb } from "./db";
+import { db } from "./db";
 import { eq, desc, and } from "drizzle-orm";
 
 const PLACE_ID = process.env.GOOGLE_PLACE_ID || "ChIJGreen_Apple_Gandhinagar";
@@ -87,33 +88,30 @@ async function fetchGoogleReviews() {
 export const reviewsRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
     let dbFormattedReviews: any[] = [];
-    const db = await getDb();
-    const restaurantId = ctx.user.restaurantId;
+    const restaurantId = ctx.user.restaurantId as string;
     
-    if (db) {
-      try {
-        const dbReviews = await db
-          .select()
-          .from(reviews)
-          .where(eq(reviews.restaurantId, restaurantId))
-          .orderBy(desc(reviews.createdAt))
-          .limit(10);
-          
-        if (dbReviews.length > 0) {
-          dbFormattedReviews = dbReviews.map(r => ({
-            authorName: r.authorName,
-            rating: r.rating,
-            text: r.text,
-            relativeTimeDescription: r.relativeTime,
-            profilePhotoUrl: null,
-            time: r.createdAt ? new Date(r.createdAt as unknown as string).getTime() : Date.now(),
-            isReplied: r.isReplied,
-            replyText: r.replyText,
-          }));
-        }
-      } catch (e) {
-        console.error("[ReviewsRouter] DB fetch failed", e);
+    try {
+      const dbReviews = await db
+        .select()
+        .from(reviews)
+        .where(eq(reviews.restaurantId, restaurantId))
+        .orderBy(desc(reviews.createdAt))
+        .limit(10);
+        
+      if (dbReviews.length > 0) {
+        dbFormattedReviews = dbReviews.map((r: any) => ({
+          authorName: r.authorName,
+          rating: r.rating,
+          text: r.text,
+          relativeTimeDescription: r.relativeTime,
+          profilePhotoUrl: null,
+          time: r.createdAt ? new Date(r.createdAt as unknown as string).getTime() : Date.now(),
+          isReplied: r.isReplied,
+          replyText: r.replyText,
+        }));
       }
+    } catch (e) {
+      console.error("[ReviewsRouter] DB fetch failed", e);
     }
     
     const googleData = await fetchGoogleReviews();
@@ -132,24 +130,21 @@ export const reviewsRouter = router({
       replyText: z.string(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const db = await getDb();
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
 
-      if (db) {
-        const result = await db.update(reviews)
-          .set({ isReplied: true, replyText: input.replyText })
-          .where(
-            and(
-              eq(reviews.id, input.reviewId),
-              eq(reviews.restaurantId, restaurantId)
-            )
-          );
+      const result = await db.update(reviews)
+        .set({ isReplied: true, replyText: input.replyText })
+        .where(
+          and(
+            eq(reviews.id, input.reviewId),
+            eq(reviews.restaurantId, restaurantId)
+          )
+        );
 
-        if (result.changes === 0) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Review not found or access denied." });
-        }
-        return { success: true };
+      const affectedRows = (result as any).rowsAffected ?? (result as any).changes ?? 0;
+      if (affectedRows === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Review not found or access denied." });
       }
-      return { success: true, simulated: true };
+      return { success: true };
     }),
 });

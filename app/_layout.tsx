@@ -11,15 +11,9 @@ import { offlineSync } from '../lib/offlineSync';
 
 import { useSaaSStore } from '../lib/saas-store';
 
+import { queryClient } from '../lib/queryClient';
+
 export default function RootLayout() {
-  const [queryClient] = useState(() => new QueryClient({
-    defaultOptions: {
-      queries: {
-        staleTime: 30_000,
-        retry: 1,
-      },
-    },
-  }));
   const [trpcClient] = useState(createTRPCClient);
   const themeColor = useSaaSStore(s => s.themeColor);
   const loadFromStorage = useSaaSStore(s => s.loadFromStorage);
@@ -31,9 +25,10 @@ export default function RootLayout() {
   // Initialize offline sync on native platforms
   useEffect(() => {
     if (Platform.OS !== 'web') {
+      offlineSync.setTrpcClient(trpcClient);
       offlineSync.initialize().catch(e => console.warn('[OfflineSync] Init failed:', e));
     }
-  }, []);
+  }, [trpcClient]);
 
   return (
     <ErrorBoundary>

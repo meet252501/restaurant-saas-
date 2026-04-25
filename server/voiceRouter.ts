@@ -16,7 +16,7 @@ export const voiceRouter = router({
     .input(z.object({ bookingId: z.string() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
 
       // ── Mock Mode ──────────────────────────────────────────────────────────
       if (!db) {

@@ -29,10 +29,17 @@ const port = process.env.EXPO_PUBLIC_SERVER_PORT || '3000';
 
 // Use environment variable if provided (for permanent cloud/tunnel URLs), otherwise fallback to local IP
 const envUrl = process.env.EXPO_PUBLIC_API_URL;
-const baseUrl = envUrl || (host === 'localhost' ? `http://localhost:${port}` : `http://${host}:${port}`);
+let baseUrl = envUrl || (host === 'localhost' ? `http://localhost:${port}` : `http://${host}:${port}`);
 
-export const HttpUrl = `${baseUrl}/api/trpc`;
-export const WsUrl = baseUrl.replace('http', 'ws') + '/api/trpc';
+export function setBaseUrl(newUrl: string) {
+  baseUrl = newUrl.endsWith('/') ? newUrl.slice(0, -1) : newUrl;
+  HttpUrl = `${baseUrl}/api/trpc`;
+  WsUrl = baseUrl.replace('http', 'ws') + '/api/trpc';
+  console.log(`[tRPC] Base URL updated to: ${baseUrl}`);
+}
+
+export let HttpUrl = `${baseUrl}/api/trpc`;
+export let WsUrl = baseUrl.replace('http', 'ws') + '/api/trpc';
 
 export function createTRPCClient() {
   const wsClient = createWSClient({

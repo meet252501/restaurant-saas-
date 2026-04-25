@@ -121,9 +121,8 @@ export default function NewBookingScreen() {
     }
   });
 
-  const handleSubmit = () => {
-    createMutation.mutate({
-      restaurantId: RESTAURANT_ID,
+  const handleSubmit = async () => {
+    const payload = {
       customerName: form.name?.trim(),
       customerPhone: form.phone?.trim()?.replace(/[\s-]/g, ''),
       partySize: parseInt(form.partySize, 10),
@@ -131,7 +130,37 @@ export default function NewBookingScreen() {
       bookingDate: form.date,
       bookingTime: form.time,
       notes: form.notes?.trim(),
-    });
+    };
+
+    const { offlineSync } = require('../lib/offlineSync');
+    if (!offlineSync.getStatus().isOnline) {
+      // Offline mode: queue locally
+      const { queueMutation, getOfflineDb } = require('../utils/offlineDb');
+      await queueMutation('createBooking', payload);
+      
+      // Optimistically insert into local DB
+      const db = await getOfflineDb();
+      const id = 'local_' + Math.random().toString(36).substr(2, 9);
+      await db.runAsync(
+        `INSERT INTO bookings (id, restaurant_id, guest_name, guest_phone, party_size, table_id, booking_date, booking_time, special_requests, status, source) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, RESTAURANT_ID, payload.customerName, payload.customerPhone, payload.partySize, payload.tableId, payload.bookingDate, payload.bookingTime, payload.notes, 'pending', 'walkin']
+      );
+      
+      if (typeof window !== 'undefined') {
+        window.alert(`✅ Offline Booking Saved! Reservation for ${form.name} will sync when online.`);
+        router.replace('/(tabs)/bookings');
+      } else {
+        Alert.alert(
+          '✅ Offline Booking Saved!',
+          `Reservation for ${form.name} is saved locally and will sync when online.`,
+          [{ text: 'Done', onPress: () => router.replace('/(tabs)/bookings') }],
+        );
+      }
+      return;
+    }
+
+    createMutation.mutate(payload);
   };
 
   return (

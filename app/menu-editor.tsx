@@ -21,7 +21,7 @@ export default function MenuEditorScreen() {
   const [newItemType, setNewItemType] = useState<"veg" | "non-veg" | "vegan">("veg");
   const [isSpecial, setIsSpecial] = useState(false);
   
-  const { data: menuItems, isLoading, refetch } = trpc.menu.getAll.useQuery({ restaurantId: "res_default" });
+  const { data: menuItems, isLoading, refetch } = trpc.menu.getAll.useQuery();
   const toggleAvailability = trpc.menu.toggleAvailability.useMutation({ onSuccess: () => refetch() });
   const removeItem = trpc.menu.removeItem.useMutation({ onSuccess: () => refetch() });
   const addItem = trpc.menu.addItem.useMutation({ 
@@ -43,7 +43,6 @@ export default function MenuEditorScreen() {
   const handleAddItem = () => {
     if (!newItemName || !newItemPrice) return;
     addItem.mutate({
-      restaurantId: "res_default",
       category: selectedCat as any,
       name: newItemName,
       description: newItemDesc,
@@ -55,7 +54,7 @@ export default function MenuEditorScreen() {
 
   if (isLoading) return <View className="flex-1 bg-white items-center justify-center"><Text>Loading Menu...</Text></View>;
 
-  const filteredItems = menuItems?.filter(m => m.category === selectedCat) || [];
+  const filteredItems = menuItems?.filter((m: any) => m.category === selectedCat) || [];
 
   return (
     <SafeAreaView className="flex-1 bg-white" edges={['top']}>
@@ -93,7 +92,7 @@ export default function MenuEditorScreen() {
 
       <ScrollView className="flex-1 px-4 mt-6">
         <Animated.View layout={Layout.springify()}>
-          {filteredItems.map((item, index) => (
+          {filteredItems.map((item: any, index: any) => (
             <Animated.View 
               key={item.id} 
               entering={FadeInUp.delay(index * 50)}

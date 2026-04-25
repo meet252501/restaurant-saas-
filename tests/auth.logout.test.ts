@@ -26,6 +26,8 @@ function createAuthContext(): { ctx: TrpcContext; clearedCookies: CookieCall[] }
     pinCode: "1111",
     lastSignedIn: null,
     createdAt: null,
+    failedAttempts: 0,
+    lockoutUntil: null,
   };
   
   const ctx: TrpcContext = {

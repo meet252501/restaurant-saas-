@@ -5,8 +5,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { trpc, RESTAURANT_ID } from '../../lib/trpc';
 import { Colors } from '../../lib/theme';
-import { useStaggeredFadeIn, useFadeIn, usePulse } from '../../lib/animations';
+import { useFadeIn, usePulse, useStaggeredFadeIn } from '../../lib/animations';
 import { QuickAccessButton } from '../../components/QuickAccessMenu';
+import { useOfflineBookings } from '../../utils/useOfflineBookings';
+import { useOfflineDelivery } from '../../utils/useOfflineDelivery';
 
 export default function DashboardScreen() {
   const { width } = useWindowDimensions();
@@ -14,16 +16,15 @@ export default function DashboardScreen() {
   const router = useRouter();
 
   // ── Real Data Queries ──────────────────────────────
-  const { data: metrics } = trpc.analytics.todayKPIs.useQuery({ restaurantId: RESTAURANT_ID });
-  const { data: trends } = trpc.analytics.thirtyDayTrends.useQuery({ restaurantId: RESTAURANT_ID });
-  const { data: revenueData } = trpc.analytics.revenueAnalysis.useQuery({ restaurantId: RESTAURANT_ID, days: 7 });
-  const { data: deliveryData } = trpc.delivery.today.useQuery();
-  const { data: bookingsList } = trpc.booking.listByDate.useQuery({
-    restaurantId: RESTAURANT_ID,
-    date: new Date().toISOString().split('T')[0],
-  });
-
+  const { data: metrics } = trpc.analytics.todayKPIs.useQuery(undefined, { retry: 0 });
+  const { data: trends } = trpc.analytics.thirtyDayTrends.useQuery(undefined, { retry: 0 });
+  const { data: revenueData } = trpc.analytics.revenueAnalysis.useQuery({ days: 7 }, { retry: 0 });
+  
+  const { orders: deliveryOrders, summary: deliverySummary, isOfflineMode: deliveryOffline } = useOfflineDelivery();
+  
   const today = new Date().toISOString().split('T')[0];
+  const { bookings: bookingsList, isOfflineMode: bookingsOffline } = useOfflineBookings(today);
+
   const cardWidth = isDesktop ? undefined : (width - 48) / 2; // exact 2-col width
 
   // ── Computed KPIs ──────────────────────────────────
@@ -78,14 +79,11 @@ export default function DashboardScreen() {
 
   // ── Delivery Stats ─────────────────────────────────
   const deliveryStats = useMemo(() => {
-    if (!deliveryData) return { total: 0, revenue: 0 };
-    const orders = (deliveryData as any)?.orders || deliveryData || [];
-    if (!Array.isArray(orders)) return { total: 0, revenue: 0 };
     return {
-      total: orders.length,
-      revenue: orders.reduce((sum: number, o: any) => sum + (o.total || 0), 0),
+      total: deliverySummary?.total || 0,
+      revenue: deliverySummary?.revenue || 0,
     };
-  }, [deliveryData]);
+  }, [deliverySummary]);
 
 
 
@@ -128,7 +126,15 @@ export default function DashboardScreen() {
         {/* Header */}
         <View style={[styles.header, { paddingHorizontal: isDesktop ? 32 : 16, paddingVertical: isDesktop ? 20 : 12 }]}>
           <View>
-            <Text style={[styles.pageTitle, !isDesktop && { fontSize: 20 }]}>Overview</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Text style={[styles.pageTitle, !isDesktop && { fontSize: 20 }]}>Overview</Text>
+              {(bookingsOffline || deliveryOffline) && (
+                <View style={styles.offlineBadge}>
+                  <Ionicons name="cloud-offline-outline" size={12} color="#fff" />
+                  <Text style={styles.offlineBadgeText}>Offline</Text>
+                </View>
+              )}
+            </View>
             <Text style={styles.pageSub}>{formatDate(today)}</Text>
           </View>
           <QuickAccessButton />
@@ -260,7 +266,7 @@ export default function DashboardScreen() {
                 <Text style={styles.cardSub}>{recentActivity.length} today</Text>
               </View>
               <View style={{ gap: 14 }}>
-                {recentActivity.map((a, i) => (
+                {recentActivity.map((a: any, i: any) => (
                   <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                     <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: a.color }}>
                       <Animated.View style={{ position: 'absolute', width: 8, height: 8, borderRadius: 4, backgroundColor: a.color, opacity: pulse.opacity, transform: [{ scale: pulse.scale }] }} />
@@ -367,6 +373,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: Colors.surfaceBorder,
   },
   pageTitle: { color: Colors.textPrimary, fontSize: 24, fontWeight: '700', letterSpacing: -0.5 },
+  offlineBadge: { 
+    flexDirection: 'row', alignItems: 'center', gap: 4, 
+    backgroundColor: '#ef4444', paddingHorizontal: 8, paddingVertical: 2, 
+    borderRadius: 10 
+  },
+  offlineBadgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
   pageSub: { color: Colors.textTertiary, fontSize: 12, marginTop: 2 },
   profileBtn: { width: 36, height: 36, borderRadius: 18, overflow: 'hidden' },
 

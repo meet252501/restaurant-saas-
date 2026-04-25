@@ -30,7 +30,7 @@ export default function DigitalMenuPublic() {
     );
   }
 
-  const filteredItems = menuItems?.filter(m => m.category === selectedCat && m.isAvailable) || [];
+  const filteredItems = menuItems?.filter((m: any) => m.category === selectedCat && m.isAvailable) || [];
 
   return (
     <View className="flex-1 bg-white">
@@ -91,7 +91,7 @@ export default function DigitalMenuPublic() {
         <View className="py-4">
           <Text className="text-xl font-bold text-gray-900 mb-6 capitalize">{selectedCat}</Text>
           
-          {filteredItems.map((item, index) => (
+          {filteredItems.map((item: any, index: any) => (
             <Animated.View 
               key={item.id}
               entering={FadeInRight.delay(index * 100)}

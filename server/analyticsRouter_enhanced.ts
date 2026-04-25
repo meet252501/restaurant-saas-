@@ -4,6 +4,7 @@ import { bookings, customers, tables } from "../drizzle/schema";
 import { eq, and, sql, desc, gte, lte } from "drizzle-orm";
 import { db, isMockMode } from "./db";
 import { MOCK_BOOKINGS, MOCK_CUSTOMERS, MOCK_TABLES } from "./mockData";
+import { Booking, Table } from "../drizzle/schema";
 
 /**
  * ENHANCED ANALYTICS ROUTER
@@ -22,38 +23,40 @@ export const analyticsRouterEnhanced = router({
    */
   todayKPIs: protectedProcedure
     .query(async ({ ctx }) => {
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       const today = new Date().toISOString().split('T')[0];
       const isMock = isMockMode();
 
-      let dayBookings = [];
-      let allTables = [];
+      let dayBookings: Booking[] = [];
+      let allTables: Table[] = [];
 
       try {
-        dayBookings = await db
+        const results = await db
           .select()
           .from(bookings)
           .where(
             and(
-              eq(bookings.restaurantId, restaurantId),
+              eq(bookings.restaurantId, restaurantId as string),
               eq(bookings.bookingDate, today)
             )
           );
+        dayBookings = results;
 
-        allTables = await db
+        const tableResults = await db
           .select()
           .from(tables)
-          .where(eq(tables.restaurantId, restaurantId));
+          .where(eq(tables.restaurantId, restaurantId as string));
+        allTables = tableResults;
       } catch (e) {
-        dayBookings = MOCK_BOOKINGS.filter(b => b.restaurantId === restaurantId && b.bookingDate === today);
-        allTables = MOCK_TABLES.filter(t => t.restaurantId === restaurantId);
+        dayBookings = MOCK_BOOKINGS.filter((b: any) => b.restaurantId === restaurantId && b.bookingDate === today);
+        allTables = MOCK_TABLES.filter((t: any) => t.restaurantId === restaurantId);
       }
 
-      const confirmedBookings = dayBookings.filter(b => b.status === 'confirmed' || b.status === 'seated');
-      const completedBookings = dayBookings.filter(b => b.status === 'done');
-      const noShows = dayBookings.filter(b => b.status === 'no_show');
-      const totalRevenue = completedBookings.reduce((sum, b) => sum + (b.coverCharge || 0), 0);
-      const totalGuests = dayBookings.reduce((sum, b) => sum + b.partySize, 0);
+      const confirmedBookings = dayBookings.filter((b: Booking) => b.status === 'confirmed' || b.status === 'seated');
+      const completedBookings = dayBookings.filter((b: Booking) => b.status === 'done');
+      const noShows = dayBookings.filter((b: Booking) => b.status === 'no_show');
+      const totalRevenue = completedBookings.reduce((sum: number, b: Booking) => sum + (b.coverCharge || 0), 0);
+      const totalGuests = dayBookings.reduce((sum: number, b: Booking) => sum + (b.partySize || 0), 0);
 
       return {
         date: today,
@@ -79,29 +82,30 @@ export const analyticsRouterEnhanced = router({
    */
   thirtyDayTrends: protectedProcedure
     .query(async ({ ctx }) => {
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
         .toISOString()
         .split('T')[0];
       const today = new Date().toISOString().split('T')[0];
       const isMock = isMockMode();
 
-      let monthBookings = [];
+      let monthBookings: Booking[] = [];
 
       try {
-        monthBookings = await db
+        const results = await db
           .select()
           .from(bookings)
           .where(
             and(
-              eq(bookings.restaurantId, restaurantId),
+              eq(bookings.restaurantId, restaurantId as string),
               gte(bookings.bookingDate, thirtyDaysAgo),
               lte(bookings.bookingDate, today)
             )
           );
+        monthBookings = results;
       } catch (e) {
         monthBookings = MOCK_BOOKINGS.filter(
-          b => b.restaurantId === restaurantId && b.bookingDate >= thirtyDaysAgo && b.bookingDate <= today
+          (b: any) => b.restaurantId === restaurantId && b.bookingDate >= thirtyDaysAgo && b.bookingDate <= today
         );
       }
 
@@ -123,7 +127,7 @@ export const analyticsRouterEnhanced = router({
         };
       }
 
-      monthBookings.forEach(b => {
+      monthBookings.forEach((b: Booking) => {
         if (dailyData[b.bookingDate]) {
           dailyData[b.bookingDate].bookings++;
           if (b.status === 'done') {
@@ -133,7 +137,7 @@ export const analyticsRouterEnhanced = router({
           if (b.status === 'no_show') {
             dailyData[b.bookingDate].noShows++;
           }
-          dailyData[b.bookingDate].guests += b.partySize;
+          dailyData[b.bookingDate].guests += (b.partySize || 0);
         }
       });
 
@@ -153,7 +157,7 @@ export const analyticsRouterEnhanced = router({
   topCustomers: protectedProcedure
     .input(z.object({ limit: z.number().default(10) }))
     .query(async ({ input, ctx }) => {
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       const isMock = isMockMode();
 
       if (isMock) {
@@ -183,7 +187,7 @@ export const analyticsRouterEnhanced = router({
           })
           .from(customers)
           .leftJoin(bookings, eq(customers.id, bookings.customerId))
-          .where(eq(customers.restaurantId, restaurantId))
+          .where(eq(customers.restaurantId, restaurantId as string))
           .groupBy(customers.id)
           .orderBy(desc(sql`COUNT(${bookings.id})`))
           .limit(input.limit);
@@ -202,41 +206,44 @@ export const analyticsRouterEnhanced = router({
   revenueAnalysis: protectedProcedure
     .input(z.object({ days: z.number().default(30) }))
     .query(async ({ input, ctx }) => {
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       const startDate = new Date(Date.now() - input.days * 24 * 60 * 60 * 1000)
         .toISOString()
         .split('T')[0];
       const isMock = isMockMode();
 
-      let periodBookings = [];
+      let periodBookings: Booking[] = [];
 
       try {
-        periodBookings = await db
+        const results = await db
           .select()
           .from(bookings)
           .where(
             and(
-              eq(bookings.restaurantId, restaurantId),
+              eq(bookings.restaurantId, restaurantId as string),
               gte(bookings.bookingDate, startDate),
               eq(bookings.status, 'done')
             )
           );
+        periodBookings = results;
       } catch (e) {
         periodBookings = MOCK_BOOKINGS.filter(
-          b => b.restaurantId === restaurantId && b.bookingDate >= startDate && b.status === 'done'
+          (b: any) => b.restaurantId === restaurantId && b.bookingDate >= startDate && b.status === 'done'
         );
       }
 
-      const totalRevenue = periodBookings.reduce((sum, b) => sum + (b.coverCharge || 0), 0);
+      const totalRevenue = periodBookings.reduce((sum: number, b: Booking) => sum + (b.coverCharge || 0), 0);
       const revenueBySource: Record<string, number> = {};
       const revenueByHour: Record<string, number> = {};
 
-      periodBookings.forEach(b => {
+      periodBookings.forEach((b: Booking) => {
         // By source
-        revenueBySource[b.source] = (revenueBySource[b.source] || 0) + (b.coverCharge || 0);
+        if (b.source) {
+          revenueBySource[b.source] = (revenueBySource[b.source] || 0) + (b.coverCharge || 0);
+        }
 
         // By hour
-        const hour = b.bookingTime.split(':')[0];
+        const hour = (b.bookingTime || "00:00").split(':')[0];
         revenueByHour[`${hour}:00`] = (revenueByHour[`${hour}:00`] || 0) + (b.coverCharge || 0);
       });
 
@@ -247,14 +254,14 @@ export const analyticsRouterEnhanced = router({
           ? (totalRevenue / periodBookings.length).toFixed(2) 
           : '0',
         bookingCount: periodBookings.length,
-        revenueBySource: Object.entries(revenueBySource).map(([source, revenue]) => ({
+        revenueBySource: Object.entries(revenueBySource).map(([source, revenue]: [string, number]) => ({
           source,
           revenue: revenue.toFixed(2),
           percentage: ((revenue / totalRevenue) * 100).toFixed(1),
         })),
         revenueByHour: Object.entries(revenueByHour)
           .sort((a, b) => a[0].localeCompare(b[0]))
-          .map(([hour, revenue]) => ({
+          .map(([hour, revenue]: [string, number]) => ({
             hour,
             revenue: revenue.toFixed(2),
           })),
@@ -268,33 +275,34 @@ export const analyticsRouterEnhanced = router({
   performanceMetrics: protectedProcedure
     .input(z.object({ days: z.number().default(30) }))
     .query(async ({ input, ctx }) => {
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       const startDate = new Date(Date.now() - input.days * 24 * 60 * 60 * 1000)
         .toISOString()
         .split('T')[0];
       const isMock = isMockMode();
 
-      let periodBookings = [];
+      let periodBookings: Booking[] = [];
 
       try {
-        periodBookings = await db
+        const results = await db
           .select()
           .from(bookings)
           .where(
             and(
-              eq(bookings.restaurantId, restaurantId),
+              eq(bookings.restaurantId, restaurantId as string),
               gte(bookings.bookingDate, startDate)
             )
           );
+        periodBookings = results;
       } catch (e) {
-        periodBookings = MOCK_BOOKINGS.filter(b => b.restaurantId === restaurantId && b.bookingDate >= startDate);
+        periodBookings = MOCK_BOOKINGS.filter((b: any) => b.restaurantId === restaurantId && b.bookingDate >= startDate);
       }
 
       const totalBookings = periodBookings.length;
-      const completed = periodBookings.filter(b => b.status === 'done').length;
-      const noShows = periodBookings.filter(b => b.status === 'no_show').length;
-      const cancelled = periodBookings.filter(b => b.status === 'cancelled').length;
-      const confirmed = periodBookings.filter(b => b.status === 'confirmed').length;
+      const completed = periodBookings.filter((b: Booking) => b.status === 'done').length;
+      const noShows = periodBookings.filter((b: Booking) => b.status === 'no_show').length;
+      const cancelled = periodBookings.filter((b: Booking) => b.status === 'cancelled').length;
+      const confirmed = periodBookings.filter((b: Booking) => b.status === 'confirmed').length;
 
       return {
         period: `Last ${input.days} days`,
@@ -304,7 +312,7 @@ export const analyticsRouterEnhanced = router({
         cancellationRate: totalBookings > 0 ? ((cancelled / totalBookings) * 100).toFixed(1) : '0',
         confirmationRate: totalBookings > 0 ? ((confirmed / totalBookings) * 100).toFixed(1) : '0',
         averagePartySize: totalBookings > 0 
-          ? (periodBookings.reduce((sum, b) => sum + b.partySize, 0) / totalBookings).toFixed(1)
+          ? (periodBookings.reduce((sum: number, b: Booking) => sum + (b.partySize || 0), 0) / totalBookings).toFixed(1)
           : '0',
       };
     }),
@@ -316,7 +324,7 @@ export const analyticsRouterEnhanced = router({
   exportMonthlyReport: protectedProcedure
     .input(z.object({ month: z.string() })) // YYYY-MM
     .query(async ({ input, ctx }) => {
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       // TODO: Generate PDF using ReportLab or similar
       return {
         success: true,
@@ -339,7 +347,7 @@ function getPeakHour(bookings: any[]): string {
     hourCounts[hour] = (hourCounts[hour] || 0) + 1;
   });
 
-  const peakHour = Object.entries(hourCounts).reduce((a, b) =>
+  const peakHour = Object.entries(hourCounts).reduce((a: [string, number], b: [string, number]) =>
     b[1] > a[1] ? b : a
   )[0];
 

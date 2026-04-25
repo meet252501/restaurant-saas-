@@ -111,16 +111,16 @@ export default function TablesScreen() {
 
   // TRPC queries
   const { data: liveTables = [] } = trpc.table.listByRestaurant.useQuery(
-    { restaurantId: RESTAURANT_ID },
+    undefined,
     { refetchInterval: 10000 }
   );
 
   // Combine live and mock (live takes priority)
   const allTables = liveTables.length > 0 ? liveTables : mockTables;
-  const statusCounts = allTables.reduce((acc: any, t) => {
+  const statusCounts = allTables.reduce((acc: any, t: any) => {
     acc[t.status] = (acc[t.status] ?? 0) + 1; return acc;
   }, {});
-  const filtered = filterStatus ? allTables.filter(t => t.status === filterStatus) : allTables;
+  const filtered = filterStatus ? allTables.filter((t: any) => t.status === filterStatus) : allTables;
 
   // TRPC mutations
   const addTableMutation    = trpc.table.addTable.useMutation({
@@ -174,7 +174,7 @@ export default function TablesScreen() {
   }
 
   function handleAdd() {
-    addTableMutation.mutate({ restaurantId: RESTAURANT_ID, capacity: newCapacity, zone: newZone });
+    addTableMutation.mutate({ capacity: newCapacity, zone: newZone });
   }
 
   function handleRemove(table: any) {
@@ -273,7 +273,7 @@ export default function TablesScreen() {
 
         {/* Table Grid */}
         <View style={styles.grid}>
-          {filtered.map(table => (
+          {filtered.map((table: any) => (
             <View key={table.id} style={{ width: cardWidth }}>
               <TableCard
                 table={table}

@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { router, publicProcedure, protectedProcedure } from "./_core/trpc";
+import { router, publicProcedure, protectedProcedure, TRPCError } from "./_core/trpc";
 import { tables } from "../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { db, isMockMode } from "./db";
 import { observable } from "@trpc/server/observable";
 import { ee, EVENTS } from "./events";
@@ -10,7 +10,7 @@ import { MOCK_TABLES } from "./mockData";
 export const tableRouter = router({
   listByRestaurant: protectedProcedure
     .query(async ({ ctx }) => {
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       if (isMockMode()) {
         return MOCK_TABLES.filter(t => t.restaurantId === restaurantId);
       }
@@ -23,7 +23,7 @@ export const tableRouter = router({
       status: z.enum(["available", "occupied", "reserved", "cleaning", "blocked"]),
     }))
     .mutation(async ({ input, ctx }) => {
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       if (isMockMode()) {
         const t = MOCK_TABLES.find(t => t.id === input.id && t.restaurantId === restaurantId);
         if (t) t.status = input.status;
@@ -54,7 +54,7 @@ export const tableRouter = router({
       zone: z.string().optional(),  // "Indoor" | "Outdoor" | "Rooftop" | "Private"
     }))
     .mutation(async ({ input, ctx }) => {
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       const nextNumber = MOCK_TABLES.filter(t => t.restaurantId === restaurantId).length > 0
         ? Math.max(...MOCK_TABLES.filter(t => t.restaurantId === restaurantId).map(t => t.tableNumber)) + 1
         : 1;
@@ -94,7 +94,7 @@ export const tableRouter = router({
       zone: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       if (isMockMode()) {
         const t = MOCK_TABLES.find(t => t.id === input.id && t.restaurantId === restaurantId) as any;
         if (t) {
@@ -107,8 +107,6 @@ export const tableRouter = router({
       
       const updateData: any = {};
       if (input.capacity) updateData.capacity = input.capacity;
-      // Note: zone might not be in the actual DB schema if it was only in mock, 
-      // but if it is, we should update it. 
       
       const result = await db
         .update(tables)
@@ -132,7 +130,7 @@ export const tableRouter = router({
   removeTable: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input, ctx }) => {
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       if (isMockMode()) {
         const idx = MOCK_TABLES.findIndex(t => t.id === input.id && t.restaurantId === restaurantId);
         if (idx !== -1) MOCK_TABLES.splice(idx, 1);
@@ -163,3 +161,4 @@ export const tableRouter = router({
     });
   }),
 });
+

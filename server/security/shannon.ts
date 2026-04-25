@@ -39,7 +39,7 @@ async function runAudit() {
     // ATTEMPT 1: User A tries to get a snapshot for Restaurant B
     // In our hardened code, the procedure ignores the 'restaurantId' parameter 
     // and uses the one from ctx.user.
-    const result = await callerA.dailySnapshot.getSnapshot({ restaurantId: "restaurant_B" });
+    const result = await (callerA.dailySnapshot.getSnapshot as any)({ restaurantId: "restaurant_B" });
     console.log("✅ IDOR Test 1 (Snapshot): Passed.");
     results.push({ name: "Snapshot IDOR", status: 'PASS', details: "Request for B yielded data scoped to A." });
   } catch (err: any) {
@@ -62,7 +62,7 @@ async function runAudit() {
   console.log("\nStep 3: Verifying Review Management Scoping...");
   try {
     // ATTEMPT 3: User A tries to reply to a review belonging to Restaurant B
-    await callerA.reviews.replyToReview({ id: "review_B", reply: "Thanks!" });
+    await callerA.reviews.submitReply({ reviewId: "review_B", replyText: "Thanks!" });
     console.log("❌ IDOR Test 3 (Reviews): FAILED!");
     results.push({ name: "Review IDOR", status: 'FAIL', details: "Review B was modified by User A." });
   } catch (err: any) {

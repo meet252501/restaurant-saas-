@@ -1,7 +1,8 @@
-import { z } from "zod";
+﻿import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { router, publicProcedure, protectedProcedure } from "./_core/trpc";
 import { bookings, customers, tables } from "../drizzle/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, gte, lte } from "drizzle-orm";
 import { db, isMockMode } from "./db";
 import { MOCK_TABLES, MOCK_BOOKINGS, MOCK_CUSTOMERS } from "./mockData";
 import { observable } from "@trpc/server/observable";
@@ -17,15 +18,38 @@ export const bookingRouter = router({
   listByDate: protectedProcedure
     .input(z.object({ date: z.string() })) // YYYY-MM-DD
     .query(async ({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId as string;
       if (isMockMode()) {
-        return MOCK_BOOKINGS.filter(b => b.restaurantId === ctx.user.restaurantId && b.bookingDate === input.date);
+        return MOCK_BOOKINGS.filter((b: any) => b.restaurantId === restaurantId && b.bookingDate === input.date);
       }
       return await db.select()
         .from(bookings)
         .where(
           and(
-            eq(bookings.restaurantId, ctx.user.restaurantId),
+            eq(bookings.restaurantId, restaurantId),
             eq(bookings.bookingDate, input.date)
+          )
+        );
+    }),
+
+  listByRange: protectedProcedure
+    .input(z.object({ startDate: z.string(), endDate: z.string() })) // YYYY-MM-DD
+    .query(async ({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId as string;
+      if (isMockMode()) {
+        return MOCK_BOOKINGS.filter((b: any) => 
+          b.restaurantId === restaurantId && 
+          b.bookingDate >= input.startDate && 
+          b.bookingDate <= input.endDate
+        );
+      }
+      return await db.select()
+        .from(bookings)
+        .where(
+          and(
+            eq(bookings.restaurantId, restaurantId),
+            gte(bookings.bookingDate, input.startDate),
+            lte(bookings.bookingDate, input.endDate)
           )
         );
     }),
@@ -33,9 +57,10 @@ export const bookingRouter = router({
   getById: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId as string;
       if (isMockMode()) {
-        const booking = MOCK_BOOKINGS.find(b => b.id === input.id);
-        if (booking && booking.restaurantId !== ctx.user.restaurantId) return null;
+        const booking = MOCK_BOOKINGS.find((b: any) => b.id === input.id);
+        if (booking && booking.restaurantId !== restaurantId) return null;
         return booking || null;
       }
       const result = await db
@@ -44,7 +69,7 @@ export const bookingRouter = router({
         .where(
           and(
             eq(bookings.id, input.id),
-            eq(bookings.restaurantId, ctx.user.restaurantId)
+            eq(bookings.restaurantId, restaurantId)
           )
         );
       return result[0];
@@ -105,14 +130,14 @@ export const bookingRouter = router({
           
           // Check if any table of sufficient capacity is free at this time
           // 1. Get all tables that can fit the party
-          const suitableTables = restaurantTables.filter(t => t.capacity >= partySize);
+          const suitableTables = restaurantTables.filter((t: any) => t.capacity >= partySize);
           
           // 2. Get bookings at this specific time
-          const bookingsAtTime = dayBookings.filter(b => b.bookingTime === time);
+          const bookingsAtTime = dayBookings.filter((b: any) => b.bookingTime === time);
           
           // 3. Find if there's at least one suitable table not already booked
-          const availableSuitableTable = suitableTables.find(t => 
-            !bookingsAtTime.some(b => b.tableId === t.id)
+          const availableSuitableTable = suitableTables.find((t: any) => 
+            !bookingsAtTime.some((b: any) => b.tableId === t.id)
           );
 
           if (availableSuitableTable) {
@@ -127,9 +152,9 @@ export const bookingRouter = router({
   // Create a new booking
   create: publicProcedure
     .input(z.object({
-      restaurantId: z.string(),
+      restaurantId: z.string().optional(),
        customerId: z.string().optional(),
-      customerName: z.string().refine(val => !val || !/[;\"\-\-]/.test(val), "Invalid characters in name").optional(),
+      customerName: z.string().min(1).max(100).optional(),
       customerPhone: z.string().regex(/^\+?[0-9]{10,15}$/, "Invalid phone number format (e.g., +919999999999 or 9999999999)"),
       tableId: z.string().optional(),
       bookingDate: z.string(),
@@ -140,7 +165,10 @@ export const bookingRouter = router({
       notes: z.string().optional(),
       coverChargeAmount: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const restaurantId = input.restaurantId || ctx.user?.restaurantId;
+      if (!restaurantId) throw new TRPCError({ code: "BAD_REQUEST", message: "Restaurant ID is required" });
+      
       let customerId = input.customerId;
       const isMock = isMockMode();
 
@@ -154,7 +182,7 @@ export const bookingRouter = router({
             .from(customers)
             .where(
               and(
-                eq(customers.restaurantId, input.restaurantId),
+                eq(customers.restaurantId, restaurantId as string),
                 eq(customers.phone, input.customerPhone)
               )
             );
@@ -165,7 +193,7 @@ export const bookingRouter = router({
             const newCustId = `cust_${Date.now()}`;
             await db.insert(customers).values({
               id: newCustId,
-              restaurantId: input.restaurantId,
+              restaurantId: restaurantId as string,
               name: input.customerName!,
               phone: input.customerPhone,
               visitCount: 0,
@@ -190,7 +218,7 @@ export const bookingRouter = router({
             .from(tables)
             .where(
               and(
-                eq(tables.restaurantId, input.restaurantId),
+                eq(tables.restaurantId, restaurantId as string),
                 sql`${tables.capacity} >= ${input.partySize}`,
                 eq(tables.status, "available")
               )
@@ -208,7 +236,7 @@ export const bookingRouter = router({
 
       const newBooking: any = {
         id,
-        restaurantId: input.restaurantId,
+        restaurantId: restaurantId as string,
         customerId: customerId,
         tableId: tableId,
         bookingDate: input.bookingDate,
@@ -226,43 +254,37 @@ export const bookingRouter = router({
         MOCK_BOOKINGS.push(newBooking);
       } else {
         try {
-          // ATOMIC TRANSACTION: Prevent double-bookings
-          // This ensures that even if 1000 people try to book the same table simultaneously,
-          // only one booking succeeds and others are rejected.
-          await db.transaction(async (tx) => {
-            // Step 1: Check if table is already booked for this time slot (with lock)
-            const existingBooking = await tx
-              .select()
-              .from(bookings)
-              .where(
-                and(
-                  eq(bookings.tableId, tableId),
-                  eq(bookings.bookingDate, input.bookingDate),
-                  eq(bookings.bookingTime, input.bookingTime),
-                  sql`${bookings.status} != \'cancelled\'`
-                )
+          // Double-booking check: select existing, then insert
+          // Note: better-sqlite3 is synchronous - async transactions are NOT supported
+          const existingBooking = await db
+            .select()
+            .from(bookings)
+            .where(
+              and(
+                eq(bookings.tableId, tableId),
+                eq(bookings.bookingDate, input.bookingDate),
+                eq(bookings.bookingTime, input.bookingTime),
+                sql`${bookings.status} != 'cancelled'`
               )
-              .limit(1);
+            )
+            .limit(1);
 
-            if (existingBooking.length > 0) {
-              throw new Error(`Table ${tableId} is already booked for ${input.bookingTime} on ${input.bookingDate}`);
-            }
-
-            // Step 2: Create the booking atomically
-            await tx.insert(bookings).values(newBooking);
-
-            // Step 3: Update table status to 'reserved' for this time slot
-            // Note: In a real system, you'd have a booking_slots table to track table availability per time
-            console.log(`[BOOKING] Atomic booking created: ${newBooking.id} for table ${tableId}`);
-          });
-        } catch (e: any) {
-          console.error("[DB] Booking transaction failed:", e.message);
-          // If transaction fails due to double-booking, throw error to client
-          if (e.message.includes('already booked')) {
-            throw new Error('This table is no longer available for the selected time. Please choose another time or table.');
+          if (existingBooking.length > 0) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: `This table is already booked for ${input.bookingTime} on ${input.bookingDate}. Please choose another time or table.`
+            });
           }
-          // For other errors, do NOT fall back to mock in production-ready mode
-          throw new Error(`BOOKING_FAILURE: ${e.message || 'Unknown database error'}`);
+
+          await db.insert(bookings).values(newBooking);
+          console.log(`[BOOKING] Created: ${newBooking.id} for table ${tableId}`);
+        } catch (e: any) {
+          if (e instanceof TRPCError) throw e;
+          console.error("[DB] Booking insert failed:", e.message);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `BOOKING_FAILURE: ${e.message || 'Unknown database error'}`
+          });
         }
       }
       
@@ -275,7 +297,7 @@ export const bookingRouter = router({
         input.partySize
       ).catch(err => console.error("Notification failed:", err));
 
-      // 🔗 Sync to Google Sheets + alert manager
+      // ðŸ”— Sync to Google Sheets + alert manager
       const bookingRow = {
         id: newBooking.id,
         customerName: input.customerName || "Guest",
@@ -319,14 +341,15 @@ export const bookingRouter = router({
       status: z.enum(["pending", "confirmed", "seated", "done", "cancelled", "no_show", "checked_in", "completed"]),
     }))
     .mutation(async ({ input, ctx }) => {
+      const restaurantId = ctx.user.restaurantId as string;
       if (isMockMode()) {
-        const mockIdx = MOCK_BOOKINGS.findIndex((b) => b.id === input.id && b.restaurantId === ctx.user.restaurantId);
+        const mockIdx = MOCK_BOOKINGS.findIndex((b: any) => b.id === input.id && b.restaurantId === restaurantId);
         if (mockIdx !== -1) {
           const booking = MOCK_BOOKINGS[mockIdx];
-          booking.status = input.status;
+          booking.status = input.status as any;
 
           // Send Feedback Request on Check-out (SQLite schema: status 'done')
-          if (input.status === "done") {
+          if (input.status === "done" || input.status === "completed") {
             NotificationService.sendFeedbackRequest(
               (booking as any).customerPhone || "+91 9999999999",
               (booking as any).customerName || "Guest"
@@ -352,11 +375,12 @@ export const bookingRouter = router({
         .where(
           and(
             eq(bookings.id, input.id),
-            eq(bookings.restaurantId, ctx.user.restaurantId)
+            eq(bookings.restaurantId, restaurantId)
           )
         );
 
-      if (result.changes === 0) {
+      const affected = (result as any).rowsAffected ?? (result as any).changes;
+      if (affected === 0) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Booking not found or access denied." });
       }
       ee.emit(EVENTS.BOOKINGS_CHANGED);
@@ -370,4 +394,13 @@ export const bookingRouter = router({
       return () => ee.off(EVENTS.BOOKINGS_CHANGED, onUpdate);
     });
   }),
+
+  listCustomers: protectedProcedure
+    .query(async ({ ctx }) => {
+      const restaurantId = ctx.user.restaurantId as string;
+      if (isMockMode()) {
+        return MOCK_CUSTOMERS.filter((c: any) => c.restaurantId === restaurantId);
+      }
+      return await db.select().from(customers).where(eq(customers.restaurantId, restaurantId));
+    }),
 });

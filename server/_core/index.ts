@@ -11,7 +11,6 @@ import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { AutomationService } from "./automation";
-import { initCloudDB } from "./tursoClient";
 import { validateEnv } from "./env";
 
 // Run validation immediately
@@ -115,7 +114,6 @@ async function startServer() {
 
   server.listen(port, "0.0.0.0", async () => {
     console.log(`[api] server and websocket listening on port ${port} on 0.0.0.0`);
-    await initCloudDB();
     AutomationService.init();
   });
 

@@ -46,8 +46,8 @@ export default function AIAssistantScreen() {
   const scrollRef = useRef<ScrollView>(null);
 
   // Fetch contextual floor data for the Smart Engine
-  const { data: bookings } = trpc.booking.listByDate.useQuery({ restaurantId: RESTAURANT_ID, date: new Date().toISOString().split('T')[0] });
-  const { data: tables } = trpc.table.listByRestaurant.useQuery({ restaurantId: RESTAURANT_ID });
+  const { data: bookings } = trpc.booking.listByDate.useQuery({ date: new Date().toISOString().split('T')[0] });
+  const { data: tables } = trpc.table.listByRestaurant.useQuery(undefined);
 
   const chatMutation = trpc.ai.chat.useMutation({
     onSuccess: (data) => {

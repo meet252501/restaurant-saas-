@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { QuickAccessButton } from '../../components/QuickAccessMenu';
 import { trpc, RESTAURANT_ID } from '../../lib/trpc';
 import { Colors, Spacing, Typography, Radius, Shadows } from '../../lib/theme';
+import { useOfflineBookings } from '../../utils/useOfflineBookings';
 
 const FILTERS = ['all', 'pending', 'confirmed', 'checked_in', 'completed', 'cancelled'] as const;
 type Filter = typeof FILTERS[number];
@@ -133,30 +134,15 @@ export default function BookingsScreen() {
 
   const trpcUtils = trpc.useUtils();
 
-  // Live data from server
-  const { data: liveBookings = [], refetch } = trpc.booking.listByDate.useQuery(
-    { restaurantId: RESTAURANT_ID, date },
-    { refetchInterval: 10000 }
-  );
-
-  // Local mock state for fallback / immediate updates
-  const [localMockBookings, setLocalMockBookings] = useState([
-    { id: '1', customerName: 'Rahul Sharma', customerPhone: '+91 9876543210', status: 'confirmed', partySize: 4, bookingTime: '19:30', tableNumber: '3', source: 'online' },
-    { id: '2', customerName: 'Priya Patel', customerPhone: '+91 9988776655', status: 'checked_in', partySize: 2, bookingTime: '20:00', tableNumber: '2', source: 'phone' },
-    { id: '3', customerName: 'Amit Verma', customerPhone: '+91 9123456789', status: 'pending', partySize: 6, bookingTime: '21:15', tableNumber: '5', source: 'online' },
-    { id: '4', customerName: 'Sonia Gupta', customerPhone: '+91 9822334455', status: 'completed', partySize: 3, bookingTime: '18:45', tableNumber: '1', source: 'walkin' },
-    { id: '5', customerName: 'Vikram Singh', customerPhone: '+91 9766554433', status: 'cancelled', partySize: 2, bookingTime: '19:00', tableNumber: '4', source: 'phone' },
-  ]);
-
-  // Fallback / merged with mock for offline
-  const allBookings: any[] = liveBookings.length > 0 ? liveBookings : localMockBookings;
+  // Use Offline Hook for bookings
+  const { bookings: allBookings, isOfflineMode, refetch } = useOfflineBookings(date);
 
   const updateStatus = trpc.booking.updateStatus.useMutation({
     onSuccess: () => {
       trpcUtils.booking.listByDate.invalidate();
       refetch();
     },
-    onError: (e) => console.log('TRPC Update Error (ignoring for mock):', e.message),
+    onError: (e) => console.log('TRPC Update Error (handled by offline queue):', e.message),
   });
 
   const handleStatusChange = (id: string, status: string) => {
@@ -164,10 +150,20 @@ export default function BookingsScreen() {
       status === 'cancelled' ? 'Cancel this booking?' :
       status === 'checked_in' ? 'Seat this guest?' : 'Update status?';
 
-    const confirmAction = () => {
-      // Optimistic local update
-      setLocalMockBookings(prev => prev.map(b => b.id === id ? { ...b, status } : b));
-      updateStatus.mutate({ id, status: status as any });
+    const confirmAction = async () => {
+      if (isOfflineMode) {
+        // Queue the mutation locally
+        const { queueMutation } = require('../../utils/offlineDb');
+        await queueMutation('updateBookingStatus', { id, status });
+        
+        // Optimistically update the local DB
+        const { getOfflineDb } = require('../../utils/offlineDb');
+        const db = await getOfflineDb();
+        await db.runAsync('UPDATE bookings SET status = ? WHERE id = ?', [status, id]);
+        refetch();
+      } else {
+        updateStatus.mutate({ id, status: status as any });
+      }
     };
 
     if (Platform.OS === 'web') {
@@ -182,8 +178,8 @@ export default function BookingsScreen() {
     }
   };
 
-  const pendingCount = allBookings.filter(b => b.status === 'pending').length;
-  const filtered = allBookings.filter(b => filter === 'all' || b.status === filter);
+  const pendingCount = allBookings.filter((b: any) => b.status === 'pending').length;
+  const filtered = allBookings.filter((b: any) => filter === 'all' || b.status === filter);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -229,7 +225,7 @@ export default function BookingsScreen() {
       <ScrollView horizontal showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.filterRow} style={{ flexGrow: 0 }}>
         {FILTERS.map(f => {
-          const count = f === 'all' ? allBookings.length : allBookings.filter(b => b.status === f).length;
+          const count = f === 'all' ? allBookings.length : allBookings.filter((b: any) => b.status === f).length;
           return (
             <Pressable key={f} style={[styles.filterTab, filter === f && styles.filterTabActive]}
               onPress={() => setFilter(f)}>

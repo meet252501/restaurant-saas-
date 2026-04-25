@@ -1,11 +1,17 @@
 import { defineConfig } from "drizzle-kit";
 import path from "path";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+const dbUrl = process.env.DATABASE_URL;
+const isPostgres = dbUrl?.startsWith("postgres");
 
 export default defineConfig({
-  schema: "./drizzle/schema.ts",
+  schema: isPostgres ? "./drizzle/schema.postgres.ts" : "./drizzle/schema.ts",
   out: "./drizzle/migrations",
-  dialect: "sqlite",
+  dialect: isPostgres ? "postgresql" : "sqlite",
   dbCredentials: {
-    url: process.env.DATABASE_PATH ?? path.resolve("./tablebook.db"),
+    url: isPostgres ? dbUrl : (process.env.DATABASE_PATH ?? path.resolve("./tablebook.db")),
   },
 });

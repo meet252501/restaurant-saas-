@@ -1,8 +1,9 @@
 import Database from 'better-sqlite3';
-import { drizzle } from 'drizzle-orm/better-sqlite3';
-import { drizzle as drizzleLibsql } from 'drizzle-orm/libsql';
-import { createClient } from '@libsql/client';
-import * as schema from '../drizzle/schema';
+import { drizzle as drizzleSqlite } from 'drizzle-orm/better-sqlite3';
+import { drizzle as drizzlePostgres } from 'drizzle-orm/node-postgres';
+import pg from 'pg';
+import * as sqliteSchema from '../drizzle/schema';
+import * as pgSchema from '../drizzle/schema.postgres';
 import { fileURLToPath } from 'url';
 import path, { dirname } from 'path';
 import dotenv from 'dotenv';
@@ -13,73 +14,72 @@ const __dirname = dirname(__filename);
 dotenv.config();
 
 /**
- * Returns true when neither DATABASE_URL nor DATABASE_PATH is provided.
- * All routers should call this instead of `!process.env.DATABASE_URL`
- * because our SQLite DB uses DATABASE_PATH (not DATABASE_URL).
+ * Returns true when neither DATABASE_PATH nor DATABASE_URL is provided.
  */
 export function isMockMode(): boolean {
-  return !process.env.DATABASE_URL && !process.env.DATABASE_PATH && !process.env.TURSO_DATABASE_URL;
+  return !process.env.DATABASE_URL && !process.env.DATABASE_PATH;
 }
 
 const DB_PATH = process.env.DATABASE_PATH
   ? path.resolve(process.env.DATABASE_PATH)
   : path.resolve(__dirname, '../tablebook.db');
 
-// Singleton instance
-let _db: ReturnType<typeof drizzle> | null = null;
+// Database Instances
+let _db: any = null;
 let _sqlite: Database.Database | null = null;
+let _pool: pg.Pool | null = null;
 
-export function getDb() {
-  if (!_db) {
-    const tursoUrl = process.env.TURSO_DATABASE_URL;
-    const tursoToken = process.env.TURSO_AUTH_TOKEN;
-    const isProduction = process.env.NODE_ENV === 'production';
+/**
+ * Initializes the Database (SQLite for local, Postgres for Cloud).
+ */
+export function initDatabases() {
+  if (_db) return { db: _db };
 
-    const isPlaceholderUrl = !tursoUrl || tursoUrl.includes('your-db') || tursoUrl === 'libsql://your-db-name.turso.io';
+  const dbUrl = process.env.DATABASE_URL;
 
-    if (!isPlaceholderUrl && tursoUrl?.startsWith('libsql://')) {
-      try {
-        const client = createClient({
-          url: tursoUrl,
-          authToken: tursoToken,
-        });
-        _db = drizzleLibsql(client, { schema }) as any;
-        console.log(`[DB] Connected to TURSO CLOUD at ${tursoUrl}`);
-      } catch (error) {
-        console.error('[DB] CRITICAL: Failed to connect to Turso cloud database:', error);
-        if (isProduction) {
-          throw new Error('PRODUCTION_DB_FAILURE: Could not connect to Turso. Aborting to prevent data loss.');
-        }
-      }
+  // 1. Cloud Postgres Mode
+  if (dbUrl?.startsWith('postgres')) {
+    try {
+      _pool = new pg.Pool({
+        connectionString: dbUrl,
+        ssl: { rejectUnauthorized: false }
+      });
+      _db = drizzlePostgres(_pool, { schema: pgSchema });
+      console.log(`[DB] Cloud PostgreSQL initialized.`);
+    } catch (error) {
+      console.error('[DB] Failed to initialize Cloud PostgreSQL:', error);
     }
-
-    if (!_db) {
-      if (isProduction) {
-        throw new Error('PRODUCTION_DB_MISSING: TURSO_DATABASE_URL is not configured. Cloud DB is mandatory for commercial use.');
-      }
-      
-      try {
-        _sqlite = new Database(DB_PATH);
-        _sqlite.pragma('journal_mode = WAL');
-        _sqlite.pragma('foreign_keys = ON');
-        _db = drizzle(_sqlite, { schema }) as any;
-        console.log(`[DB] Connected to LOCAL SQLite at ${DB_PATH} (Development Only)`);
-      } catch (error) {
-        console.warn('[DB] Failed to open local SQLite:', error);
-        _db = null;
-      }
+  } 
+  // 2. Local SQLite Mode
+  else if (!isMockMode()) {
+    try {
+      _sqlite = new Database(DB_PATH);
+      _sqlite.pragma('journal_mode = WAL');
+      _sqlite.pragma('foreign_keys = ON');
+      _db = drizzleSqlite(_sqlite, { schema: sqliteSchema });
+      console.log(`[DB] Local SQLite initialized at ${DB_PATH}`);
+    } catch (error) {
+      console.error('[DB] Failed to initialize local SQLite:', error);
     }
   }
-  return _db;
+
+  return { db: _db };
 }
 
-// Proxy that falls back gracefully when DB is not available
-export const db = new Proxy({} as ReturnType<typeof drizzle<typeof schema>>, {
+/**
+ * Get current active database
+ */
+export function getDb() {
+  return initDatabases().db;
+}
+
+// Global db instance for the app
+export const db = new Proxy({} as any, {
   get(_target, prop) {
     const instance = getDb();
     if (!instance) {
       return (..._args: any[]) => {
-        console.warn(`[DB] Operation "${String(prop)}" called but DB not available. Using mock fallback.`);
+        console.warn(`[DB] Operation "${String(prop)}" called but no DB available.`);
         throw new Error(`DB_UNAVAILABLE:${String(prop)}`);
       };
     }
@@ -91,43 +91,40 @@ export function closeDb() {
   if (_sqlite) {
     _sqlite.close();
     _sqlite = null;
-    _db = null;
-    console.log('[DB] Connection closed');
+    console.log('[DB] Local SQLite connection closed');
   }
+  if (_pool) {
+    _pool.end();
+    _pool = null;
+    console.log('[DB] Cloud PostgreSQL pool closed');
+  }
+  _db = null;
 }
 
-// ── Helpers used by sdk.ts & oauth.ts ─────────────────────────────────────────
-
+// ── Helpers ──────────────────────────────────────────────────────────────────
 import { eq } from 'drizzle-orm';
-import { users } from '../drizzle/schema';
 
-/**
- * Find a user by their OAuth openId.
- * Returns null if DB is unavailable or user not found.
- */
 export async function getUserByOpenId(openId: string) {
   const instance = getDb();
   if (!instance) return null;
-  const result = await instance.select().from(users).where(eq(users.openId, openId)).limit(1);
-  return result[0] ?? null;
+  
+  const schema = process.env.DATABASE_URL?.startsWith('postgres') ? pgSchema : sqliteSchema;
+  
+  try {
+    const result = await instance.select().from(schema.users).where(eq(schema.users.openId, openId)).limit(1);
+    return result[0] ?? null;
+  } catch {
+    return null;
+  }
 }
 
-/**
- * Insert or update a user record. Merges only provided fields.
- */
-export async function upsertUser(data: {
-  openId: string;
-  name?: string | null;
-  email?: string | null;
-  loginMethod?: string | null;
-  lastSignedIn?: Date;
-  restaurantId?: string | null;
-}) {
-  const instance = getDb();
-  if (!instance) return;
+export async function upsertUser(data: any) {
+  const instance = db;
+  const schema = process.env.DATABASE_URL?.startsWith('postgres') ? pgSchema : sqliteSchema;
   const now = new Date().toISOString();
-  await (instance as any)
-    .insert(users)
+  
+  await instance
+    .insert(schema.users)
     .values({
       openId: data.openId,
       name: data.name ?? null,
@@ -137,7 +134,7 @@ export async function upsertUser(data: {
       createdAt: now,
     })
     .onConflictDoUpdate({
-      target: users.openId,
+      target: schema.users.openId,
       set: {
         ...(data.name !== undefined && { name: data.name }),
         ...(data.email !== undefined && { email: data.email }),
@@ -146,4 +143,3 @@ export async function upsertUser(data: {
       },
     });
 }
-

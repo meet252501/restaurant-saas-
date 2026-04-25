@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { router, protectedProcedure, TRPCError } from "./_core/trpc";
+import { TRPCError } from "@trpc/server";
+import { router, protectedProcedure } from "./_core/trpc";
 import { tables, bookings } from "../drizzle/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { db, isMockMode } from "./db";
@@ -14,17 +15,13 @@ import { ee, EVENTS } from "./events";
  */
 
 export const staffRouter = router({
-  /**
-   * Get real-time table status board
-   * Shows all tables with their current status and next booking
-   */
   getTableBoard: protectedProcedure
     .input(z.object({ date: z.string() }))
     .query(async ({ input, ctx }) => {
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       const isMock = isMockMode();
 
-      let allTables = [];
+      let allTables: any[] = [];
       try {
         allTables = await db
           .select()
@@ -36,7 +33,7 @@ export const staffRouter = router({
       }
 
       // Get all bookings for the day
-      let dayBookings = [];
+      let dayBookings: any[] = [];
       try {
         dayBookings = await db
           .select()
@@ -68,10 +65,6 @@ export const staffRouter = router({
       return tableBoard;
     }),
 
-  /**
-   * Update table status (available, occupied, cleaning, blocked)
-   * Used by staff to manually manage table state
-   */
   updateTableStatus: protectedProcedure
     .input(
       z.object({
@@ -81,7 +74,7 @@ export const staffRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       const isMock = isMockMode();
       
       if (isMock) {
@@ -112,7 +105,8 @@ export const staffRouter = router({
             )
           );
 
-        if (result.changes === 0) {
+        const affected = (result as any).rowsAffected ?? (result as any).changes;
+        if (affected === 0) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Table not found or access denied." });
         }
 
@@ -136,15 +130,13 @@ export const staffRouter = router({
         return { success: true, message: `Table status updated to ${input.status}` };
       } catch (e) {
         console.error("[DB] Table status update failed:", e);
-        throw new Error('Failed to update table status');
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: 'Failed to update table status'
+        });
       }
     }),
 
-  /**
-   * Force book a table (override availability)
-   * Used for VIP bookings or manual corrections
-   * Requires PIN authentication
-   */
   forceBookTable: protectedProcedure
     .input(
       z.object({
@@ -158,7 +150,7 @@ export const staffRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       const isMock = isMockMode();
 
       const bookingId = `bk_override_${Date.now()}`;
@@ -185,7 +177,10 @@ export const staffRouter = router({
           await db.insert(bookings).values(newBooking);
         } catch (e) {
           console.error("[DB] Force booking failed:", e);
-          throw new Error('Failed to create override booking');
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: 'Failed to create override booking'
+          });
         }
       }
 
@@ -197,14 +192,10 @@ export const staffRouter = router({
       };
     }),
 
-  /**
-   * Check in a customer (mark booking as checked_in)
-   * Called when customer arrives at restaurant
-   */
   checkInCustomer: protectedProcedure
     .input(z.object({ bookingId: z.string() }))
     .mutation(async ({ input, ctx }) => {
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       const isMock = isMockMode();
 
       if (isMock) {
@@ -230,7 +221,8 @@ export const staffRouter = router({
             )
           );
 
-        if (result.changes === 0) {
+        const affected = (result as any).rowsAffected ?? (result as any).changes;
+        if (affected === 0) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Booking not found or access denied." });
         }
 
@@ -238,14 +230,13 @@ export const staffRouter = router({
         return { success: true, message: 'Customer checked in' };
       } catch (e) {
         console.error("[DB] Check-in failed:", e);
-        throw new Error('Failed to check in customer');
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: 'Failed to check in customer'
+        });
       }
     }),
 
-  /**
-   * Check out a customer (mark booking as completed)
-   * Called when customer leaves restaurant
-   */
   checkOutCustomer: protectedProcedure
     .input(
       z.object({
@@ -254,7 +245,7 @@ export const staffRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       const isMock = isMockMode();
 
       if (isMock) {
@@ -282,7 +273,8 @@ export const staffRouter = router({
             )
           );
 
-        if (result.changes === 0) {
+        const affected = (result as any).rowsAffected ?? (result as any).changes;
+        if (affected === 0) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Booking not found or access denied." });
         }
 
@@ -290,18 +282,17 @@ export const staffRouter = router({
         return { success: true, message: 'Customer checked out' };
       } catch (e) {
         console.error("[DB] Check-out failed:", e);
-        throw new Error('Failed to check out customer');
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: 'Failed to check out customer'
+        });
       }
     }),
 
-  /**
-   * Mark customer as no-show
-   * Called if customer doesn't arrive within grace period
-   */
   markNoShow: protectedProcedure
     .input(z.object({ bookingId: z.string() }))
     .mutation(async ({ input, ctx }) => {
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       const isMock = isMockMode();
 
       if (isMock) {
@@ -327,7 +318,8 @@ export const staffRouter = router({
             )
           );
 
-        if (result.changes === 0) {
+        const affected = (result as any).rowsAffected ?? (result as any).changes;
+        if (affected === 0) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Booking not found or access denied." });
         }
 
@@ -335,21 +327,20 @@ export const staffRouter = router({
         return { success: true, message: 'Marked as no-show' };
       } catch (e) {
         console.error("[DB] No-show marking failed:", e);
-        throw new Error('Failed to mark as no-show');
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: 'Failed to mark as no-show'
+        });
       }
     }),
 
-  /**
-   * Get today's summary for staff dashboard
-   * Shows key metrics for the day
-   */
   getTodaySummary: protectedProcedure
     .query(async ({ ctx }) => {
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       const today = new Date().toISOString().split('T')[0];
       const isMock = isMockMode();
 
-      let dayBookings = [];
+      let dayBookings: any[] = [];
       try {
         dayBookings = await db
           .select()
@@ -366,17 +357,18 @@ export const staffRouter = router({
 
       return {
         totalBookings: dayBookings.length,
-        confirmedBookings: dayBookings.filter(b => b.status === 'confirmed').length,
-        checkedIn: dayBookings.filter(b => b.status === 'seated').length,
-        completed: dayBookings.filter(b => b.status === 'done').length,
-        noShows: dayBookings.filter(b => b.status === 'no_show').length,
-        cancelled: dayBookings.filter(b => b.status === 'cancelled').length,
+        confirmedBookings: dayBookings.filter((b: any) => b.status === 'confirmed').length,
+        checkedIn: dayBookings.filter((b: any) => b.status === 'seated').length,
+        completed: dayBookings.filter((b: any) => b.status === 'done').length,
+        noShows: dayBookings.filter((b: any) => b.status === 'no_show').length,
+        cancelled: dayBookings.filter((b: any) => b.status === 'cancelled').length,
         averagePartySize: Math.round(
-          dayBookings.reduce((sum, b) => sum + b.partySize, 0) / (dayBookings.length || 1)
+          dayBookings.reduce((sum: number, b: any) => sum + (b.partySize || 0), 0) / (dayBookings.length || 1)
         ),
         peakHour: getPeakHour(dayBookings),
       };
     }),
+
 
   /**
    * Real-time subscription to table status changes

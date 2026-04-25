@@ -27,7 +27,7 @@ export const restaurantRouter = router({
     .query(async ({ ctx }) => {
       const db = await getDb();
       if (!db) return null;
-      const result = await db.select().from(restaurants).where(eq(restaurants.id, ctx.user.restaurantId)).limit(1);
+      const result = await db.select().from(restaurants).where(eq(restaurants.id, ctx.user.restaurantId as string)).limit(1);
       return result[0] || null;
     }),
 
@@ -55,7 +55,7 @@ export const restaurantRouter = router({
       
       const restaurantId = ctx.user.restaurantId;
 
-      await db.update(restaurants).set(input).where(eq(restaurants.id, restaurantId));
+      await db.update(restaurants).set(input).where(eq(restaurants.id, restaurantId as string));
       return { success: true };
     }),
 });

@@ -23,11 +23,11 @@ export const dailySnapshotRouter = router({
     .input(z.object({}))
     .query(async ({ ctx }) => {
       const today = todayStr();
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
 
       try {
         // ── Bookings today ───────────────────────────────────────────────
-        const allBookings = await db!
+        const allBookings: any[] = await db!
           .select()
           .from(bookings)
           .where(
@@ -38,13 +38,13 @@ export const dailySnapshotRouter = router({
           );
 
         const totalBookings    = allBookings.length;
-        const seatedBookings   = allBookings.filter(b => b.status === "seated").length;
-        const doneBookings     = allBookings.filter(b => b.status === "done").length;
-        const pendingBookings  = allBookings.filter(b => b.status === "pending" || b.status === "confirmed").length;
-        const cancelledBookings = allBookings.filter(b => b.status === "cancelled" || b.status === "no_show").length;
-        const walkinBookings   = allBookings.filter(b => b.source === "walkin").length;
-        const totalCovers      = allBookings.reduce((s, b) => s + (b.partySize || 0), 0);
-        const diningRevenue    = allBookings.reduce((s, b) => s + (b.finalBill || 0), 0);
+        const seatedBookings   = allBookings.filter((b: any) => b.status === "seated").length;
+        const doneBookings     = allBookings.filter((b: any) => b.status === "done").length;
+        const pendingBookings  = allBookings.filter((b: any) => b.status === "pending" || b.status === "confirmed").length;
+        const cancelledBookings = allBookings.filter((b: any) => b.status === "cancelled" || b.status === "no_show").length;
+        const walkinBookings   = allBookings.filter((b: any) => b.status === "walkin").length;
+        const totalCovers      = allBookings.reduce((s: number, b: any) => s + (b.partySize || 0), 0);
+        const diningRevenue    = allBookings.reduce((s: number, b: any) => s + (b.finalBill || 0), 0);
 
         // Hourly distribution (0-23)
         const bookingsByHour: Record<number, number> = {};
@@ -55,7 +55,7 @@ export const dailySnapshotRouter = router({
         const peakHour = Object.entries(bookingsByHour).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
         // ── Delivery orders today ────────────────────────────────────────
-        const allOrders = await db!
+        const allOrders: any[] = await db!
           .select()
           .from(deliveryOrders)
           .where(
@@ -66,11 +66,11 @@ export const dailySnapshotRouter = router({
           );
 
         const totalOrders      = allOrders.length;
-        const deliveryRevenue  = allOrders.reduce((s, o) => s + (o.totalAmount || 0), 0);
-        const zomatoOrders     = allOrders.filter(o => o.platform === "zomato").length;
-        const swiggyOrders     = allOrders.filter(o => o.platform === "swiggy").length;
-        const directOrders     = allOrders.filter(o => o.platform === "direct").length;
-        const pendingOrders    = allOrders.filter(o => o.status === "pending" || o.status === "preparing").length;
+        const deliveryRevenue  = allOrders.reduce((s: number, o: any) => s + (o.totalAmount || 0), 0);
+        const zomatoOrders     = allOrders.filter((o: any) => o.platform === "zomato").length;
+        const swiggyOrders     = allOrders.filter((o: any) => o.platform === "swiggy").length;
+        const directOrders     = allOrders.filter((o: any) => o.platform === "direct").length;
+        const pendingOrders    = allOrders.filter((o: any) => o.status === "pending" || o.status === "preparing").length;
 
         // ── Totals ───────────────────────────────────────────────────────
         const totalRevenue = diningRevenue + deliveryRevenue;
@@ -81,12 +81,12 @@ export const dailySnapshotRouter = router({
         const hourlyRevenue: { hour: string; revenue: number; bookings: number }[] = [];
         for (let h = Math.max(9, now - 7); h <= now; h++) {
           const label = `${h.toString().padStart(2, "0")}:00`;
-          const hBookings = allBookings.filter(b => parseInt((b.bookingTime || "0").split(":")[0], 10) === h);
-          const hOrders   = allOrders.filter(o => new Date(o.createdAt || "").getHours() === h);
+          const hBookings = allBookings.filter((b: any) => parseInt((b.bookingTime || "0").split(":")[0], 10) === h);
+          const hOrders   = allOrders.filter((o: any) => new Date(o.createdAt || "").getHours() === h);
           hourlyRevenue.push({
             hour: label,
-            revenue: hBookings.reduce((s, b) => s + (b.finalBill || 0), 0)
-                   + hOrders.reduce((s, o) => s + (o.totalAmount || 0), 0),
+            revenue: hBookings.reduce((s: number, b: any) => s + (b.finalBill || 0), 0)
+                   + hOrders.reduce((s: number, o: any) => s + (o.totalAmount || 0), 0),
             bookings: hBookings.length,
           });
         }

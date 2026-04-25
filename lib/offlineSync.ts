@@ -1,23 +1,7 @@
-/**
- * OFFLINE SYNC SERVICE
- * Implements local-first architecture for TableBook
- * - Queues bookings locally when offline
- * - Syncs when connection is restored
- * - Handles conflicts and retries
- */
-
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
-
-export interface QueuedBooking {
-  localId: string;
-  bookingData: any;
-  synced: boolean;
-  serverId?: string;
-  createdAt: string;
-  syncAttempts: number;
-  lastSyncError?: string;
-}
+import { getOfflineDb, checkAndPruneIfNewDay, getPendingMutations, removeMutation } from '../utils/offlineDb';
+import { queryClient } from './queryClient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface SyncStatus {
   isOnline: boolean;
@@ -27,6 +11,13 @@ export interface SyncStatus {
   isSyncing: boolean;
 }
 
+export interface SyncTask {
+  id: string;
+  mutation_type: string;
+  payload: string;
+  created_at: string;
+}
+
 class OfflineSync {
   private syncStatus: SyncStatus = {
     isOnline: true,
@@ -34,109 +25,61 @@ class OfflineSync {
     syncedBookings: 0,
     isSyncing: false,
   };
-
   private syncListeners: Set<(status: SyncStatus) => void> = new Set();
+  private trpcClient: any;
 
-  /**
-   * Initialize offline sync
-   * - Check initial network status
-   * - Listen for network changes
-   * - Load pending bookings from storage
-   */
+  // We set the trpc client so the SyncEngine can make calls
+  setTrpcClient(client: any) {
+    this.trpcClient = client;
+    this.pushPendingMutations(); // Attempt to push when trpc is provided
+  }
+
   async initialize() {
-    // Check initial network status
+    console.log('[OfflineSync] Initializing local database and sync manager...');
+
+    // 30-Day Data Retention - prune local cache if it's a new day
+    await checkAndPruneIfNewDay();
+
     const state = await NetInfo.fetch();
     this.syncStatus.isOnline = state.isConnected ?? true;
 
-    // Listen for network changes
-    const unsubscribe = NetInfo.addEventListener(state => {
+    NetInfo.addEventListener(state => {
       const wasOnline = this.syncStatus.isOnline;
       this.syncStatus.isOnline = state.isConnected ?? true;
-
       console.log(`[OfflineSync] Network status: ${this.syncStatus.isOnline ? 'ONLINE' : 'OFFLINE'}`);
 
-      // If just came online, sync pending bookings
       if (!wasOnline && this.syncStatus.isOnline) {
-        console.log('[OfflineSync] Connection restored! Syncing pending bookings...');
-        this.syncPendingBookings();
+        console.log('[OfflineSync] Connection restored! Syncing pending mutations...');
+        this.pushPendingMutations();
+        this.syncDataSnapshot(); // Sync fresh data when back online
       }
-
       this.notifyListeners();
     });
 
-    // Load pending bookings
-    await this.loadPendingBookings();
-
-    return unsubscribe;
-  }
-
-  /**
-   * Queue a booking locally when offline
-   */
-  async queueBooking(booking: any): Promise<QueuedBooking> {
-    const queuedBooking: QueuedBooking = {
-      localId: `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      bookingData: booking,
-      synced: false,
-      createdAt: new Date().toISOString(),
-      syncAttempts: 0,
-    };
-
-    // Get existing queue
-    const queue = await this.getBookingQueue();
-    queue.push(queuedBooking);
-
-    // Save to storage
-    await AsyncStorage.setItem('bookingQueue', JSON.stringify(queue));
-
-    console.log(`[OfflineSync] Booking queued locally: ${queuedBooking.localId}`);
-
-    this.syncStatus.pendingBookings = queue.filter(b => !b.synced).length;
-    this.notifyListeners();
-
-    return queuedBooking;
-  }
-
-  /**
-   * Get all queued bookings
-   */
-  async getBookingQueue(): Promise<QueuedBooking[]> {
-    try {
-      const queue = await AsyncStorage.getItem('bookingQueue');
-      return queue ? JSON.parse(queue) : [];
-    } catch (e) {
-      console.error('[OfflineSync] Failed to load booking queue:', e);
-      return [];
+    // Check if we need to seed history (if local DB is empty)
+    if (this.syncStatus.isOnline) {
+      const db = await getOfflineDb();
+      const count = await db.getFirstAsync<{count: number}>('SELECT COUNT(*) as count FROM bookings');
+      if (count && count.count === 0) {
+        console.log('[OfflineSync] Local database is empty. Seeding 30-day history...');
+        this.syncHistory(30).catch(e => console.error('[OfflineSync] History seed failed:', e));
+      } else {
+        this.syncDataSnapshot();
+      }
     }
+
+    await this.updateStatus();
+    return () => {};
   }
 
-  /**
-   * Load pending bookings from storage on app start
-   */
-  private async loadPendingBookings() {
-    const queue = await this.getBookingQueue();
-    this.syncStatus.pendingBookings = queue.filter(b => !b.synced).length;
-    this.syncStatus.syncedBookings = queue.filter(b => b.synced).length;
+  async updateStatus() {
+    const queue = await getPendingMutations();
+    this.syncStatus.pendingBookings = queue.length;
     this.notifyListeners();
   }
 
-  /**
-   * Sync pending bookings with server
-   * - Retry failed bookings up to 3 times
-   * - Handle conflicts gracefully
-   * - Update local state
-   */
-  async syncPendingBookings(trpc?: any): Promise<{ synced: number; failed: number }> {
-    if (this.syncStatus.isSyncing) {
-      console.log('[OfflineSync] Sync already in progress, skipping...');
-      return { synced: 0, failed: 0 };
-    }
-
-    if (!this.syncStatus.isOnline) {
-      console.log('[OfflineSync] Still offline, cannot sync');
-      return { synced: 0, failed: 0 };
-    }
-
+  async pushPendingMutations() {
+    if (this.syncStatus.isSyncing || !this.trpcClient || !this.syncStatus.isOnline) return { synced: 0, failed: 0 };
     this.syncStatus.isSyncing = true;
     this.notifyListeners();
 
@@ -144,80 +87,54 @@ class OfflineSync {
     let failed = 0;
 
     try {
-      const queue = await this.getBookingQueue();
-      const unsyncedBookings = queue.filter(b => !b.synced);
+      const mutations = await getPendingMutations() as SyncTask[];
+      if (mutations.length === 0) return { synced: 0, failed: 0 };
+      
+      console.log(`[OfflineSync] Found ${mutations.length} pending offline mutations to push.`);
 
-      console.log(`[OfflineSync] Syncing ${unsyncedBookings.length} pending bookings...`);
-
-      for (const queuedBooking of unsyncedBookings) {
+      for (const task of mutations) {
         try {
-          // Attempt to sync with server
-          if (trpc) {
-            const response = await trpc.booking.create.mutate(queuedBooking.bookingData);
-            
-            // Mark as synced
-            queuedBooking.synced = true;
-            queuedBooking.serverId = response.id;
-            queuedBooking.syncAttempts++;
-            
-            console.log(`[OfflineSync] ✅ Synced: ${queuedBooking.localId} → ${response.id}`);
-            synced++;
+          const payload = JSON.parse(task.payload);
+          switch (task.mutation_type) {
+            case 'createBooking':
+              await this.trpcClient.booking.create.mutate(payload);
+              break;
+            case 'updateBookingStatus':
+              await this.trpcClient.booking.updateStatus.mutate(payload);
+              break;
+            case 'updateTableStatus':
+              await this.trpcClient.table.updateStatus.mutate(payload);
+              break;
+            // Add other mutations here
           }
-        } catch (error: any) {
-          queuedBooking.syncAttempts++;
-          queuedBooking.lastSyncError = error.message;
-
-          // Retry up to 3 times
-          if (queuedBooking.syncAttempts >= 3) {
-            console.error(`[OfflineSync] ❌ Failed after 3 attempts: ${queuedBooking.localId}`, error.message);
-            failed++;
-          } else {
-            console.warn(`[OfflineSync] ⚠️ Sync attempt ${queuedBooking.syncAttempts} failed for ${queuedBooking.localId}`, error.message);
-          }
+          await removeMutation(task.id);
+          synced++;
+        } catch (e: any) {
+          console.error(`[OfflineSync] Failed to sync mutation ${task.mutation_type}:`, e);
+          failed++;
         }
       }
-
-      // Save updated queue
-      await AsyncStorage.setItem('bookingQueue', JSON.stringify(queue));
-
-      // Update status
-      this.syncStatus.pendingBookings = queue.filter(b => !b.synced).length;
-      this.syncStatus.syncedBookings = queue.filter(b => b.synced).length;
+      queryClient?.invalidateQueries();
       this.syncStatus.lastSyncTime = new Date().toISOString();
-
-      console.log(`[OfflineSync] Sync complete: ${synced} synced, ${failed} failed`);
-    } catch (error) {
-      console.error('[OfflineSync] Sync operation failed:', error);
     } finally {
       this.syncStatus.isSyncing = false;
-      this.notifyListeners();
+      await this.updateStatus();
     }
-
     return { synced, failed };
   }
 
-  /**
-   * Get current sync status
-   */
+  // Hook for UI
   getStatus(): SyncStatus {
     return { ...this.syncStatus };
   }
 
-  /**
-   * Subscribe to sync status changes
-   */
   subscribe(listener: (status: SyncStatus) => void): () => void {
     this.syncListeners.add(listener);
-
-    // Return unsubscribe function
     return () => {
       this.syncListeners.delete(listener);
     };
   }
 
-  /**
-   * Notify all listeners of status change
-   */
   private notifyListeners() {
     this.syncListeners.forEach(listener => {
       listener({ ...this.syncStatus });
@@ -225,65 +142,109 @@ class OfflineSync {
   }
 
   /**
-   * Clear all synced bookings from queue
+   * Syncs today's data and essential metadata (tables, customers)
    */
-  async clearSyncedBookings() {
-    const queue = await this.getBookingQueue();
-    const unsyncedOnly = queue.filter(b => !b.synced);
-    await AsyncStorage.setItem('bookingQueue', JSON.stringify(unsyncedOnly));
-
-    this.syncStatus.syncedBookings = 0;
-    this.notifyListeners();
-
-    console.log('[OfflineSync] Cleared synced bookings');
-  }
-
-  /**
-   * Get a specific queued booking by local ID
-   */
-  async getQueuedBooking(localId: string): Promise<QueuedBooking | null> {
-    const queue = await this.getBookingQueue();
-    return queue.find(b => b.localId === localId) || null;
-  }
-
-  /**
-   * Cancel a queued booking before it's synced
-   */
-  async cancelQueuedBooking(localId: string): Promise<boolean> {
-    const queue = await this.getBookingQueue();
-    const index = queue.findIndex(b => b.localId === localId && !b.synced);
-
-    if (index === -1) {
-      console.warn(`[OfflineSync] Cannot cancel booking ${localId} - not found or already synced`);
-      return false;
-    }
-
-    queue.splice(index, 1);
-    await AsyncStorage.setItem('bookingQueue', JSON.stringify(queue));
-
-    this.syncStatus.pendingBookings = queue.filter(b => !b.synced).length;
-    this.notifyListeners();
-
-    console.log(`[OfflineSync] Cancelled queued booking: ${localId}`);
-    return true;
-  }
-
-  /**
-   * Get storage usage info
-   */
-  async getStorageInfo(): Promise<{ queueSize: number; estimatedBytes: number }> {
+  async syncDataSnapshot() {
+    if (!this.trpcClient || !this.syncStatus.isOnline) return;
     try {
-      const queue = await this.getBookingQueue();
-      const queueString = JSON.stringify(queue);
-      return {
-        queueSize: queue.length,
-        estimatedBytes: queueString.length,
-      };
+      console.log('[OfflineSync] Syncing fresh data snapshot...');
+      const today = new Date().toISOString().split('T')[0];
+      
+      const [bookings, delivery, tables, customers] = await Promise.all([
+        this.trpcClient.booking.listByDate.query({ date: today }),
+        this.trpcClient.delivery.today.query(),
+        this.trpcClient.table.listByRestaurant.query(),
+        this.trpcClient.booking.listCustomers.query(),
+      ]);
+
+      const db = await getOfflineDb();
+
+      // 1. Sync Bookings
+      for (const b of bookings) {
+        await db.runAsync(
+          `INSERT OR REPLACE INTO bookings (id, restaurant_id, customer_id, table_id, guest_name, guest_phone, booking_date, booking_time, party_size, status, source, created_at) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [b.id, b.restaurantId, b.customerId, b.tableId, b.customerName || b.guestName, b.customerPhone || b.guestPhone, b.bookingDate, b.bookingTime, b.partySize, b.status, b.source, b.createdAt]
+        );
+      }
+
+      // 2. Sync Delivery Orders
+      const dOrders = delivery.orders || delivery || [];
+      for (const o of dOrders) {
+        await db.runAsync(
+          `INSERT OR REPLACE INTO delivery_orders (id, restaurant_id, platform, external_id, customer_name, total_amount, status, created_at) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [o.id, o.restaurantId || '', o.platform, o.orderId, o.customerName, o.total, o.status, o.placedAt]
+        );
+      }
+
+      // 3. Sync Tables
+      for (const t of tables) {
+        await db.runAsync(
+          `INSERT OR REPLACE INTO tables (id, restaurant_id, table_number, capacity, status) VALUES (?, ?, ?, ?, ?)`,
+          [t.id, t.restaurantId, t.tableNumber, t.capacity, t.status]
+        );
+      }
+
+      // 4. Sync Customers
+      for (const c of customers) {
+        await db.runAsync(
+          `INSERT OR REPLACE INTO customers (id, restaurant_id, name, phone, email, visit_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [c.id, c.restaurantId, c.name, c.phone, c.email, c.visitCount, c.createdAt]
+        );
+      }
+
+      console.log('[OfflineSync] Data snapshot completed.');
     } catch (e) {
-      return { queueSize: 0, estimatedBytes: 0 };
+      console.error('[OfflineSync] Snapshot failed:', e);
+    }
+  }
+
+  /**
+   * Seeds historical data for the last N days
+   */
+  async syncHistory(days: number = 30) {
+    if (!this.trpcClient || !this.syncStatus.isOnline) return;
+    try {
+      console.log(`[OfflineSync] Syncing ${days}-day history...`);
+      const end = new Date();
+      const start = new Date();
+      start.setDate(end.getDate() - days);
+
+      const startDate = start.toISOString().split('T')[0];
+      const endDate = end.toISOString().split('T')[0];
+
+      const [historyBookings, historyDelivery] = await Promise.all([
+        this.trpcClient.booking.listByRange.query({ startDate, endDate }),
+        this.trpcClient.delivery.listByRange.query({ startDate: start.toISOString(), endDate: end.toISOString() }),
+      ]);
+
+      const db = await getOfflineDb();
+
+      // Batch insert bookings
+      for (const b of historyBookings) {
+        await db.runAsync(
+          `INSERT OR REPLACE INTO bookings (id, restaurant_id, customer_id, table_id, guest_name, guest_phone, booking_date, booking_time, party_size, status, source, created_at) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [b.id, b.restaurantId, b.customerId, b.tableId, b.customerName || b.guestName, b.customerPhone || b.guestPhone, b.bookingDate, b.bookingTime, b.partySize, b.status, b.source, b.createdAt]
+        );
+      }
+
+      // Batch insert delivery
+      for (const o of historyDelivery) {
+        await db.runAsync(
+          `INSERT OR REPLACE INTO delivery_orders (id, restaurant_id, platform, external_id, customer_name, total_amount, status, created_at) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [o.id, o.restaurantId || '', o.platform, o.orderId, o.customerName, o.total, o.status, o.placedAt]
+        );
+      }
+
+      console.log(`[OfflineSync] Successfully seeded ${historyBookings.length} bookings and ${historyDelivery.length} orders.`);
+      await this.syncDataSnapshot(); // Final refresh for today
+    } catch (e) {
+      console.error('[OfflineSync] History sync failed:', e);
     }
   }
 }
 
-// Export singleton instance
 export const offlineSync = new OfflineSync();

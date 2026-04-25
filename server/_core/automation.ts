@@ -129,59 +129,29 @@ export const AutomationService = {
       }
     });
 
-    // 4. Midnight Wipe (12:01 AM): Delete bookings and reset tables for testing mode
+    // 4. Midnight Wipe (12:01 AM): 4-Day Retention Policy (Cloud Database)
     cron.schedule('1 0 * * *', async () => {
       const db = await getDb();
       if (!db) return;
       try {
-        console.log("[Cron] Executing Daily Data Wipe...");
+        console.log("[Cron] Executing 4-Day Data Retention Wipe...");
         
-        // -- NEW: Cloud Sync to Turso --
-        if (tursoClient) {
-          try {
-            console.log("[Cron] Syncing today's data to Turso Cloud Archive...");
-            
-            // 1. Fetch data to be deleted
-            const oldBookings = await db.select().from(bookings).where(sql`date(booking_date) < date('now')`);
-            const oldOrders = await db.select().from(deliveryOrders).where(sql`date(created_at) < date('now')`);
-            
-            // 2. Upload to Turso
-            for (const b of oldBookings) {
-              await tursoClient.execute({
-                sql: `INSERT INTO cloud_archives (id, restaurant_id, data_type, data_json) VALUES (?, ?, ?, ?)`,
-                args: [crypto.randomUUID(), b.restaurantId || 'res_default', 'bookings', JSON.stringify(b)]
-              });
-            }
-            
-            for (const o of oldOrders) {
-              await tursoClient.execute({
-                sql: `INSERT INTO cloud_archives (id, restaurant_id, data_type, data_json) VALUES (?, ?, ?, ?)`,
-                args: [crypto.randomUUID(), o.restaurantId || 'res_default', 'deliveryOrders', JSON.stringify(o)]
-              });
-            }
-            
-            // 3. Auto-delete Turso data older than 3 days
-            await tursoClient.execute(`DELETE FROM cloud_archives WHERE archived_at < datetime('now', '-3 days')`);
-            console.log("[Cron] Turso Cloud sync & 3-day retention policy applied.");
-          } catch (err) {
-            console.error("[Cron] Failed to sync with Turso:", err);
-          }
-        }
+        // Wipe bookings older than 4 days
+        await db.delete(bookings).where(sql`date(booking_date) <= date('now', '-4 days')`);
         
-        // Wipe bookings
-        await db.delete(bookings).where(sql`date(booking_date) < date('now')`);
-        
-        // Reset all tables to 'available'
+        // Reset all tables to 'available' (Only at the start of a new day)
+        // Note: In an offline-first architecture, table status is stateful.
+        // We might just want to let the staff manually reset, but for now we keep the automated reset.
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { tables } = require('../../drizzle/schema');
         await db.update(tables).set({ status: 'available' });
         
-        // Wipe old delivery orders
-        await db.delete(deliveryOrders).where(sql`date(created_at) < date('now')`);
+        // Wipe old delivery orders older than 4 days
+        await db.delete(deliveryOrders).where(sql`date(created_at) <= date('now', '-4 days')`);
 
-        console.log("[Cron] Daily Data Wipe completed successfully.");
+        console.log("[Cron] 4-Day Retention Wipe completed successfully.");
       } catch (e) {
-        console.error("[Cron] Data Wipe error:", e);
+        console.error("[Cron] Data Retention Wipe error:", e);
       }
     });
 

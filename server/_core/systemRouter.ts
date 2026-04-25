@@ -46,4 +46,11 @@ export const systemRouter = router({
 
       return { success: true };
     }),
+
+  triggerMaintenance: adminProcedure
+    .mutation(async () => {
+      const { runMaintenanceJob } = await import("../maintenanceJob");
+      await runMaintenanceJob();
+      return { success: true };
+    }),
 });

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "./_core/trpc";
-import { getDb } from "./db";
+import { db } from "./db";
 import { deliveryOrders, bookings } from "../drizzle/schema";
 import { eq, and, gte, lte, sql } from "drizzle-orm";
 import { NotificationService } from "./_core/notification";
@@ -12,9 +12,7 @@ export const reportRouter = router({
       ownerPhone: z.string(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const db = await getDb();
-      if (!db) return { success: false };
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
 
       // 1. Get Delivery Stats
       const dayDelivery = await db.select({
@@ -24,7 +22,7 @@ export const reportRouter = router({
         .where(
           and(
             sql`date(created_at) = ${input.date}`,
-            eq(deliveryOrders.restaurantId, restaurantId)
+            eq(deliveryOrders.restaurantId, restaurantId as string)
           )
         );
 
@@ -35,7 +33,7 @@ export const reportRouter = router({
         .where(
           and(
             eq(bookings.bookingDate, input.date),
-            eq(bookings.restaurantId, restaurantId)
+            eq(bookings.restaurantId, restaurantId as string)
           )
         );
 

@@ -9,7 +9,7 @@ import { z } from "zod";
 import { router, protectedProcedure } from "./_core/trpc";
 import { deliveryOrders } from "../drizzle/schema";
 import { getDb } from "./db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, gte, lte } from "drizzle-orm";
 import { NotificationService } from "./_core/notification";
 import { ThermalPrintService } from '../lib/ThermalPrintService';
 import { GoogleSheetsService, ManagerEmailService } from './_core/googleSheets';
@@ -75,7 +75,7 @@ let liveOrders = [...MOCK_DELIVERY_ORDERS];
 export const deliveryRouter = router({
   today: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb();
-    const restaurantId = ctx.user.restaurantId;
+    const restaurantId = ctx.user.restaurantId as string;
     
     // In a real multi-tenant app, liveOrders would be filtered or stored in DB per restaurant
     let orders = liveOrders.filter(o => (o as any).restaurantId === restaurantId || !o.hasOwnProperty('restaurantId'));
@@ -85,12 +85,12 @@ export const deliveryRouter = router({
         const dbOrders = await db
           .select()
           .from(deliveryOrders)
-          .where(eq(deliveryOrders.restaurantId, restaurantId))
+          .where(eq(deliveryOrders.restaurantId, restaurantId as string))
           .orderBy(desc(deliveryOrders.createdAt))
           .limit(50);
           
         if (dbOrders.length > 0) {
-          orders = dbOrders.map(o => ({
+          orders = dbOrders.map((o: any) => ({
             id: o.id,
             platform: o.platform as "zomato" | "swiggy",
             orderId: o.externalId || o.id,
@@ -123,13 +123,45 @@ export const deliveryRouter = router({
     };
   }),
 
+  listByRange: protectedProcedure
+    .input(z.object({ startDate: z.string(), endDate: z.string() })) // ISO Date range
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      const restaurantId = ctx.user.restaurantId as string;
+      
+      if (!db) return [];
+
+      const dbOrders = await db
+        .select()
+        .from(deliveryOrders)
+        .where(
+          and(
+            eq(deliveryOrders.restaurantId, restaurantId),
+            gte(deliveryOrders.createdAt, input.startDate),
+            lte(deliveryOrders.createdAt, input.endDate)
+          )
+        )
+        .orderBy(desc(deliveryOrders.createdAt));
+        
+      return dbOrders.map((o: any) => ({
+        id: o.id,
+        platform: o.platform as "zomato" | "swiggy",
+        orderId: o.externalId || o.id,
+        customerName: o.customerName || "Guest",
+        items: (() => { try { const parsed = JSON.parse(o.itemsSummary || '[]'); return Array.isArray(parsed) ? parsed : []; } catch { return []; } })(),
+        total: o.totalAmount,
+        status: o.status as any,
+        placedAt: (o.createdAt as unknown as string) || new Date().toISOString(),
+      }));
+    }),
+
   updateStatus: protectedProcedure
     .input(z.object({
       orderId: z.string(),
       status: z.enum(["pending", "preparing", "dispatched", "delivered", "cancelled"]),
     }))
     .mutation(({ input, ctx }) => {
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       liveOrders = liveOrders.map(o =>
         (o.id === input.orderId && (o as any).restaurantId === restaurantId) ? { ...o, status: input.status } : o
       );
@@ -146,10 +178,10 @@ export const deliveryRouter = router({
       total: z.number(),
     }))
     .mutation(({ input, ctx }) => {
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       const newOrder: MockDeliveryOrder & { restaurantId: string } = {
         id: `${input.platform}_${Date.now()}`,
-        restaurantId,
+        restaurantId: restaurantId as string,
         platform: input.platform,
         orderId: input.orderId,
         customerName: input.customerName,
@@ -181,7 +213,7 @@ export const deliveryRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return { success: false };
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       
       const orders = await db
         .select()
@@ -189,7 +221,7 @@ export const deliveryRouter = router({
         .where(
           and(
             eq(deliveryOrders.id, input.orderId),
-            eq(deliveryOrders.restaurantId, restaurantId)
+            eq(deliveryOrders.restaurantId, restaurantId as string)
           )
         );
         

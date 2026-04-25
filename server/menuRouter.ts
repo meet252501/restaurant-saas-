@@ -76,9 +76,9 @@ export const menuRouter = router({
   getAll: protectedProcedure
     .query(async ({ ctx }) => {
       const db = await getDb();
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       if (db) {
-        const items = await db.select().from(menuItems).where(eq(menuItems.restaurantId, restaurantId));
+        const items = await db.select().from(menuItems).where(eq(menuItems.restaurantId, restaurantId as string));
         if (items.length > 0) return items;
       }
       return LIVE_MENU.filter(m => m.restaurantId === restaurantId);
@@ -89,7 +89,7 @@ export const menuRouter = router({
     .input(z.object({ itemId: z.string() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       if (db) {
         const item = await db
           .select()
@@ -97,7 +97,7 @@ export const menuRouter = router({
           .where(
             and(
               eq(menuItems.id, input.itemId),
-              eq(menuItems.restaurantId, restaurantId)
+              eq(menuItems.restaurantId, restaurantId as string)
             )
           )
           .limit(1);
@@ -129,11 +129,11 @@ export const menuRouter = router({
     .mutation(async ({ input, ctx }) => {
       const id = `mi_${Date.now()}`;
       const db = await getDb();
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       if (db) {
         await db.insert(menuItems).values({
           id,
-          restaurantId,
+          restaurantId: restaurantId as string,
           category: input.category,
           name: input.name,
           description: input.description,
@@ -159,7 +159,7 @@ export const menuRouter = router({
     .input(z.object({ itemId: z.string() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       if (db) {
         await db
           .delete(menuItems)
@@ -179,7 +179,7 @@ export const menuRouter = router({
     .input(z.object({ itemId: z.string(), price: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      const restaurantId = ctx.user.restaurantId;
+      const restaurantId = ctx.user.restaurantId as string;
       if (db) {
         await db
           .update(menuItems)
