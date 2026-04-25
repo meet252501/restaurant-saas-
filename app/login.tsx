@@ -462,6 +462,13 @@ export default function LoginScreen() {
             </View>
           )}
 
+          {mode === 'connection_error' && (
+            <View style={styles.errorView}>
+              <Ionicons name="cloud-offline-outline" size={64} color="#f43f5e" style={{ marginBottom: 20 }} />
+              <Text style={styles.errorTitle}>Connection Failed</Text>
+              <Text style={styles.errorSubtitle}>
+                Could not connect to the database. Please check your internet or tunnel status.
+              </Text>
               <Pressable 
                 style={styles.retryBtn} 
                 onPress={() => {
