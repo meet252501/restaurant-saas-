@@ -12,7 +12,6 @@ import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { trpc, RESTAURANT_ID } from '../../lib/trpc';
 import { useResponsive } from '../../lib/useResponsive';
-import { saveAs } from 'file-saver';
 import { Colors, Shadows, Radius } from '../../lib/theme';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -43,14 +42,13 @@ function KPICard({ label, value, sub, color = '#818cf8', icon, trend }: {
 }) {
   const isPos = !trend || trend.startsWith('+') || trend === '—';
   return (
-    <View style={[kpi.card, { borderTopColor: color }]}>
-      <View style={[kpi.iconWrap, { backgroundColor: color + '22' }]}>
+    <View style={[kpi.card]}>
+      <View style={[kpi.iconWrap, { backgroundColor: color + '18' }]}>
         <Feather name={icon as any} size={14} color={color} />
       </View>
       <Text style={kpi.value}>{value}</Text>
       <Text style={kpi.label}>{label}</Text>
-      {trend ? <Text style={[kpi.trend, { color: isPos ? '#34d399' : '#f87171' }]}>{trend}</Text> : null}
-      {sub && !trend ? <Text style={[kpi.sub, { color }]}>{sub}</Text> : null}
+      <View style={[kpi.indicator, { backgroundColor: color }]} />
     </View>
   );
 }
@@ -141,9 +139,41 @@ export default function TodayScreen() {
     })), []);
 
   const trends = trendsData ?? stableFallback;
-  const trendLabels  = trends.slice(-7).map((d: any) => d.date?.split('-')[2] ?? d.date);
-  const trendRevenue = trends.slice(-7).map((d: any) => parseInt(d.revenue ?? '0'));
-  const trendBook    = trends.slice(-7).map((d: any) => d.bookings ?? 0);
+  const trends7 = useMemo(() => trends.slice(-7), [trends]);
+  const trends30 = useMemo(() => trends.slice(-30), [trends]);
+
+  const trendLabels7 = useMemo(() => 
+    trends7.length > 0 ? trends7.map((d: any) => d.date?.split('-')[2] ?? d.date) : ['—', '—', '—', '—', '—', '—', '—']
+  , [trends7]);
+
+  const trendRevenue7 = useMemo(() => 
+    trends7.map((d: any) => {
+      const val = parseInt(d.revenue ?? '0');
+      return isNaN(val) ? 0 : val;
+    })
+  , [trends7]);
+
+  const trendBook7 = useMemo(() => 
+    trends7.map((d: any) => {
+      const val = parseInt(String(d.bookings ?? '0'));
+      return isNaN(val) ? 0 : val;
+    })
+  , [trends7]);
+
+  const trendLabels30 = useMemo(() => 
+    trends30.length > 0 ? trends30.map((d: any, i: number) => {
+      // Only show labels every 5 days for clarity
+      if (i % 6 === 0 || i === trends30.length - 1) return d.date?.split('-')[2] ?? d.date;
+      return '';
+    }) : []
+  , [trends30]);
+
+  const trendRevenue30 = useMemo(() => 
+    trends30.map((d: any) => {
+      const val = parseInt(d.revenue ?? '0');
+      return isNaN(val) ? 0 : val;
+    })
+  , [trends30]);
 
   const kpis = kpiData ?? { totalRevenue: 0, occupancyRate: 0, noShowRate: 0, totalBookings: 0, totalGuests: 0 };
 
@@ -174,7 +204,7 @@ export default function TodayScreen() {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color="#818cf8" />
-        <Text style={styles.loadingText}>Loading today's snapshot…</Text>
+        <Text style={styles.loadingText}>Loading today&apos;s snapshot…</Text>
       </View>
     );
   }
@@ -184,7 +214,7 @@ export default function TodayScreen() {
       <View style={styles.centered}>
         <Feather name="alert-circle" size={40} color="#f87171" />
         <Text style={[styles.loadingText, { color: '#f87171', marginTop: 12, fontSize: 15 }]}>
-          Could not load today's data
+          Could not load today&apos;s data
         </Text>
         <Text style={[styles.loadingText, { fontSize: 12, marginTop: 4, textAlign: 'center', paddingHorizontal: 32 }]}>
           {error?.message ?? 'Make sure the server is running.'}
@@ -230,7 +260,16 @@ export default function TodayScreen() {
   ];
 
   const triggerWebDownload = (blob: Blob, filename: string) => {
-    saveAs(blob, filename);
+    if (Platform.OS === 'web') {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
   };
 
   const exportExcel = async () => {
@@ -319,11 +358,11 @@ export default function TodayScreen() {
       refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor="#818cf8" />}
     >
       {/* ── Header ── */}
-      <LinearGradient colors={['#0f172a', '#1e1b4b']} style={styles.header}>
-        <View style={styles.headerRow}>
+      <View style={[styles.header, { backgroundColor: '#0f172a' }]}>
+        <View style={styles.header}>
           <View>
-            <Text style={styles.greeting}>{greetingByHour()}</Text>
-            <Text style={styles.dateText}>{formatDate(snap.date)}</Text>
+            <Text style={styles.greeting}>Operational Snapshot</Text>
+            <Text style={styles.dateText}>Today</Text>
           </View>
           <View style={{ flexDirection: 'row', gap: 10 }}>
             <Pressable
@@ -339,7 +378,7 @@ export default function TodayScreen() {
           </View>
         </View>
         <Text style={styles.subText}>🔄 Live · auto-refreshes every 60s · resets at midnight</Text>
-      </LinearGradient>
+      </View>
 
       {/* ── Export Action Bar ── */}
       <View style={styles.exportBar}>
@@ -375,16 +414,21 @@ export default function TodayScreen() {
       </View>
 
       {/* ── Revenue banner ── */}
-      <LinearGradient colors={['#312e81', '#1e1b4b']} style={styles.revBanner}>
+      <View style={styles.revBanner}>
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: Colors.accentPurple }]} />
         <View>
           <Text style={styles.revLabel}>Total Revenue Today</Text>
           <Text style={styles.revValue}>{fmt(snap.totalRevenue)}</Text>
         </View>
         <View style={{ alignItems: 'flex-end' }}>
-          <Text style={styles.revSub}>🍽️ Dining  {fmt(snap.diningRevenue)}</Text>
-          <Text style={styles.revSub}>🛵 Delivery  {fmt(snap.deliveryRevenue)}</Text>
+          <View style={styles.revSubBadge}>
+            <Text style={styles.revSub}>🍽️ Dining: {fmt(snap.diningRevenue)}</Text>
+          </View>
+          <View style={[styles.revSubBadge, { marginTop: 6, backgroundColor: '#ffffff20' }]}>
+            <Text style={styles.revSub}>🛵 Delivery: {fmt(snap.deliveryRevenue)}</Text>
+          </View>
         </View>
-      </LinearGradient>
+      </View>
 
       {/* ── KPI Grid ── */}
       <View style={styles.kpiGrid}>
@@ -399,14 +443,17 @@ export default function TodayScreen() {
       </View>
 
       {/* ── Charts row ── */}
+      {/* ── 7-Day & 30-Day Trends ── */}
       <View style={isDesktop ? styles.desktopRow : undefined}>
-
         {/* 7-Day Revenue Line Chart */}
-        <View style={[sc.card, isDesktop && { flex: 3 }]}>
+        <View style={[sc.card, isDesktop && { flex: 1 }]}>
           <Text style={sc.title}>📈 7-Day Revenue Trend</Text>
           <LineChart
-            data={{ labels: trendLabels, datasets: [{ data: trendRevenue.length > 0 ? trendRevenue : [0], strokeWidth: 2 }] }}
-            width={chartW}
+            data={{ 
+              labels: trendLabels7, 
+              datasets: [{ data: trendRevenue7.length > 0 ? trendRevenue7 : [0], strokeWidth: 2 }] 
+            }}
+            width={isDesktop ? Math.floor((width - 260 - 40) * 0.5) : chartW}
             height={180}
             chartConfig={chartCfg}
             bezier
@@ -416,19 +463,45 @@ export default function TodayScreen() {
           />
         </View>
 
-        {/* 7-Day Bookings Bar Chart */}
-        <View style={[sc.card, isDesktop && { flex: 2 }]}>
-          <Text style={sc.title}>📅 7-Day Bookings</Text>
-          <BarChart
-            data={{ labels: trendLabels, datasets: [{ data: trendBook.length > 0 ? trendBook : [0] }] }}
-            width={isDesktop ? Math.floor((width - 260 - 80) * 0.37) : chartW}
+        {/* 30-Day Revenue Line Chart */}
+        <View style={[sc.card, isDesktop && { flex: 1 }]}>
+          <Text style={sc.title}>📊 30-Day Revenue Cycle</Text>
+          <LineChart
+            data={{ 
+              labels: trendLabels30, 
+              datasets: [{ 
+                data: trendRevenue30.length > 0 ? trendRevenue30 : [0], 
+                strokeWidth: 1.5,
+                color: (opacity = 1) => `rgba(56, 189, 248, ${opacity})`, // Cyan for 30d
+              }] 
+            }}
+            width={isDesktop ? Math.floor((width - 260 - 40) * 0.5) : chartW}
             height={180}
-            yAxisLabel=""
-            yAxisSuffix=""
-            chartConfig={barChartCfg}
+            chartConfig={{
+              ...chartCfg,
+              color: (opacity = 1) => `rgba(56, 189, 248, ${opacity})`,
+            }}
             style={styles.chart}
+            withDots={false}
+            withShadow={false}
+            fromZero
           />
         </View>
+      </View>
+
+      {/* ── 7-Day Bookings ── */}
+      <View style={[sc.card, { marginHorizontal: 16 }]}>
+        <Text style={sc.title}>📅 7-Day Bookings Volume</Text>
+        <BarChart
+          data={{ labels: trendLabels7, datasets: [{ data: trendBook7.length > 0 ? trendBook7 : [0] }] }}
+          width={width - 48}
+          height={160}
+          yAxisLabel=""
+          yAxisSuffix=""
+          chartConfig={barChartCfg}
+          style={styles.chart}
+          showValuesOnTopOfBars
+        />
       </View>
 
       {/* ── Booking status + Delivery side by side ── */}
@@ -492,7 +565,7 @@ export default function TodayScreen() {
       <View style={styles.footer}>
         <Feather name="info" size={12} color="#334155" />
         <Text style={styles.footerText}>
-          All data is live from local storage. At midnight, it is archived to cloud and reset for a fresh day.
+          All data is live from local storage. At midnight, it is archived to secure server and reset for a fresh day.
         </Text>
       </View>
     </ScrollView>
@@ -519,12 +592,14 @@ const styles = StyleSheet.create({
 
   revBanner: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    marginHorizontal: 16, marginTop: 16, borderRadius: 16,
-    padding: 20, borderWidth: 1, borderColor: '#4338ca33',
+    marginHorizontal: 16, marginTop: 16, borderRadius: 24,
+    padding: 24, overflow: 'hidden',
+    ...Shadows.premium,
   },
-  revLabel: { color: '#a5b4fc', fontSize: 12, fontWeight: '600', marginBottom: 4 },
-  revValue: { color: '#fff', fontSize: 30, fontWeight: '800' },
-  revSub:   { color: '#94a3b8', fontSize: 12, marginTop: 3 },
+  revLabel: { color: '#cbd5e1', fontSize: 13, fontWeight: '600', marginBottom: 4 },
+  revValue: { color: '#fff', fontSize: 36, fontWeight: '900', letterSpacing: -1 },
+  revSubBadge: { backgroundColor: 'rgba(0,0,0,0.2)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  revSub:   { color: '#fff', fontSize: 11, fontWeight: '700' },
 
   kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginHorizontal: 16, marginTop: 16 },
 
@@ -538,17 +613,28 @@ const styles = StyleSheet.create({
 
 // Section card styles
 const sc = StyleSheet.create({
-  card:  { backgroundColor: '#0d1117', borderRadius: 16, padding: 16, margin: 8, marginTop: 12, borderWidth: 1, borderColor: '#1e293b' },
+  card:  { backgroundColor: '#1e293b', borderRadius: 16, padding: 16, margin: 8, marginTop: 12, borderWidth: 1, borderColor: '#1e293b' },
   title: { color: '#94a3b8', fontSize: 13, fontWeight: '700', marginBottom: 14 },
 });
 
 const kpi = StyleSheet.create({
-  card:    { width: '22%', flexGrow: 1, backgroundColor: '#0d1117', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#1e293b', borderTopWidth: 2, alignItems: 'center', gap: 4, margin: 0 },
-  iconWrap:{ width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 4 },
-  value:   { color: '#e2e8f0', fontSize: 20, fontWeight: '800' },
-  label:   { color: '#64748b', fontSize: 10, textAlign: 'center' },
-  sub:     { fontSize: 9, fontWeight: '600' },
-  trend:   { fontSize: 10, fontWeight: '700' },
+  card: {
+    width: '22.5%',
+    flexGrow: 1,
+    backgroundColor: '#1e293b',
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    marginBottom: 16,
+    alignItems: 'center',
+    gap: 4,
+    overflow: 'hidden',
+  },
+  iconWrap: { width: 30, height: 30, borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginBottom: 6 },
+  value:   { color: '#fff', fontSize: 22, fontWeight: '900', letterSpacing: -0.5 },
+  label:   { color: Colors.textTertiary, fontSize: 10, fontWeight: '600', textAlign: 'center', textTransform: 'uppercase' },
+  indicator: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 2, opacity: 0.6 },
 });
 
 const bar = StyleSheet.create({

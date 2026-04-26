@@ -1,9 +1,9 @@
 import '../global.css';
-import { Stack } from 'expo-router';
+import { Stack, useSegments, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React, { useState, useEffect } from 'react';
-import { View, Platform } from 'react-native';
+import { View, Platform, AppState } from 'react-native';
 import { trpc, createTRPCClient } from '../lib/trpc';
 import { Colors } from '../lib/theme';
 import { ErrorBoundary } from '../components/ErrorBoundary';
@@ -14,13 +14,41 @@ import { useSaaSStore } from '../lib/saas-store';
 import { queryClient } from '../lib/queryClient';
 
 export default function RootLayout() {
-  const [trpcClient] = useState(createTRPCClient);
+  const baseUrl = useSaaSStore(s => s.baseUrl);
+  const trpcClient = React.useMemo(() => createTRPCClient(), [baseUrl]);
+  const segments = useSegments();
+  const router = useRouter();
+  
   const themeColor = useSaaSStore(s => s.themeColor);
+  const isLoaded = useSaaSStore(s => s.isLoaded);
+  const isLocked = useSaaSStore(s => s.isLocked);
   const loadFromStorage = useSaaSStore(s => s.loadFromStorage);
+  const setLocked = useSaaSStore(s => s.setLocked);
 
   React.useEffect(() => {
     loadFromStorage();
   }, [loadFromStorage]);
+
+  // Auth & Lock Guard
+  useEffect(() => {
+    if (!isLoaded) return;
+
+    const inAuthGroup = segments[0] === 'login';
+
+    if (isLocked && !inAuthGroup) {
+      router.replace('/login');
+    }
+  }, [isLoaded, isLocked, segments, router]);
+
+  // AppState listener for locking
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (nextAppState === 'background') {
+        setLocked(true);
+      }
+    });
+    return () => subscription.remove();
+  }, [setLocked]);
 
   // Initialize offline sync on native platforms
   useEffect(() => {

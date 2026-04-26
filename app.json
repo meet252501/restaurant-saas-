@@ -2,7 +2,8 @@
   "expo": {
     "name": "TableBook",
     "slug": "tablebook-app",
-    "version": "1.0.3",
+    "version": "1.0.7",
+    "scheme": "tablebook",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -18,7 +19,7 @@
     },
     "android": {
       "package": "com.tablebook.app",
-      "versionCode": 4,
+      "versionCode": 5,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#0a0f1e"
@@ -40,16 +41,18 @@
       "expo-router",
       "expo-secure-store",
       "expo-web-browser",
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true
     },
     "extra": {
       "eas": {
-        "projectId": "56b65f60-c589-40c2-9214-5a6954c44fd4"
+        "projectId": "7f166c70-db34-489b-a342-d9cf8012b72c"
       },
       "router": {}
-    }
+    },
+    "owner": "meet108k"
   }
 }

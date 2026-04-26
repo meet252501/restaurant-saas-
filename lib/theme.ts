@@ -138,6 +138,20 @@ export const Shadows = {
     shadowRadius: 10,
     elevation: 6,
   },
+  lg: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  soft: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 2,
+  },
   accent: {
     shadowColor: Colors.accent,
     shadowOffset: { width: 0, height: 4 },

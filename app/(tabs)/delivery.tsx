@@ -99,17 +99,17 @@ export default function DeliveryScreen() {
   const trpcUtils = trpc.useUtils();
   const { data: liveData, isLoading, refetch } = trpc.delivery.today.useQuery(undefined, { refetchInterval: 10000 });
 
-  const ordersFromCloud = liveData?.orders ?? [];
-  const summaryFromCloud = liveData?.summary;
+  const ordersFromServer = liveData?.orders ?? [];
+  const summaryFromServer = liveData?.summary;
   
   // Combine live and mock (live takes priority)
-  const orders = ordersFromCloud.length > 0 ? ordersFromCloud : [
+  const orders = ordersFromServer.length > 0 ? ordersFromServer : [
     { id: 'd1', platform: 'zomato', orderId: 'ZOM-8821', customerName: 'Arjun Kapur', status: 'preparing', total: 450, items: [{ name: 'Butter Chicken', qty: 1, price: 380 }, { name: 'Naan', qty: 2, price: 35 }], placedAt: new Date(Date.now() - 15 * 60000).toISOString() },
     { id: 'd2', platform: 'swiggy', orderId: 'SWG-9901', customerName: 'Neha Verma', status: 'pending', total: 280, items: [{ name: 'Dal Makhani', qty: 1, price: 240 }, { name: 'Roti', qty: 2, price: 20 }], placedAt: new Date(Date.now() - 5 * 60000).toISOString() },
     { id: 'd3', platform: 'zomato', orderId: 'ZOM-1102', customerName: 'Suresh Kumar', status: 'dispatched', total: 1200, items: [{ name: 'Family Pack Biryani', qty: 1, price: 1100 }, { name: 'Coke', qty: 2, price: 50 }], placedAt: new Date(Date.now() - 45 * 60000).toISOString() },
   ];
 
-  const summary = summaryFromCloud || { revenue: 8450, zomato: 12, swiggy: 8 };
+  const summary = summaryFromServer || { revenue: 8450, zomato: 12, swiggy: 8 };
   const active = orders.filter((o: any) => o.status !== 'delivered' && o.status !== 'cancelled').length;
 
   const updateStatus = trpc.delivery.updateStatus.useMutation({
@@ -236,8 +236,8 @@ export default function DeliveryScreen() {
                 <View style={styles.cardHeader}>
                   <View style={styles.cardHeaderLeft}>
                     <PlatformBadge platform={order.platform} />
-                    <View>
-                      <Text style={styles.orderName}>{order.customerName}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.orderName} numberOfLines={2}>{order.customerName}</Text>
                       <Text style={styles.orderId}>#{order.orderId ?? order.id.slice(0, 8)}</Text>
                     </View>
                   </View>

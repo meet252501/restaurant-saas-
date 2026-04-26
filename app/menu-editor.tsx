@@ -204,7 +204,7 @@ export default function MenuEditorScreen() {
               <View className="flex-row items-center justify-between bg-primary-50 p-6 rounded-[32px]">
                 <View className="flex-row items-center">
                   <MaterialCommunityIcons name="star-outline" size={20} color="#059669" />
-                  <Text className="ml-2 font-bold text-primary-800">Chef's Special?</Text>
+                  <Text className="ml-2 font-bold text-primary-800">Chef&apos;s Special?</Text>
                 </View>
                 <Switch 
                   value={isSpecial}

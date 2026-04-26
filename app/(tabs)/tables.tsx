@@ -142,7 +142,7 @@ export default function TablesScreen() {
   function handleStatusChange(newStatus: any) {
     if (!statusModal) return;
     updateStatusMutation.mutate({ id: statusModal.id, status: newStatus });
-    // Aggressive local update for UI snappy-ness
+    // Aggressive local update for UI snappiness
     setMockTables(prev => prev.map(t => t.id === statusModal.id ? { ...t, status: newStatus } : t));
     setStatusModal(null);
   }

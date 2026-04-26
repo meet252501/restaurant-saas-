@@ -8,11 +8,6 @@ export default function Index() {
 
   if (!isLoaded) return <View style={{ flex: 1, backgroundColor: '#020617' }} />;
   
-  // If app is not setup yet, go to login (which handles onboarding)
-  if (!appName || appName === 'TableBook Setup') {
-    return <Redirect href="/login" />;
-  }
-
-  // Otherwise go to dashboard (which is protected by PinLock)
-  return <Redirect href="/(tabs)" />;
+  // Redirect to login if not authenticated (handled by login screen or layout)
+  return <Redirect href="/login" />;
 }

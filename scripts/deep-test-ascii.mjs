@@ -38,7 +38,7 @@ async function rpc(procedure, input, method = "GET") {
 
 function data(r) { return r.data?.[0]?.result?.data?.json; }
 function err(r)  { return r.data?.[0]?.error; }
-function ex(v)   { return JSON.stringify(v).slice(0, 110); }
+function ex(v)   { return (JSON.stringify(v) || "").slice(0, 110); }
 
 // ─── Test runner ─────────────────────────────────────────────────────────────
 async function test(name, fn) {

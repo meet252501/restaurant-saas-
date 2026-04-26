@@ -24,6 +24,7 @@ function createAuthContext(): { ctx: TrpcContext; clearedCookies: CookieCall[] }
     role: "manager",
     restaurantId: "res_default",
     pinCode: "1111",
+    password: "hashed_password",
     lastSignedIn: null,
     createdAt: null,
     failedAttempts: 0,

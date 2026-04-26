@@ -1,15 +1,17 @@
-import Database from 'better-sqlite3';
 import { drizzle as drizzleSqlite } from 'drizzle-orm/better-sqlite3';
 import { drizzle as drizzlePostgres } from 'drizzle-orm/node-postgres';
-import pg from 'pg';
 import * as sqliteSchema from '../drizzle/schema';
 import * as pgSchema from '../drizzle/schema.postgres';
-import { fileURLToPath } from 'url';
-import path, { dirname } from 'path';
+import path from 'path';
 import dotenv from 'dotenv';
+import { InferSelectModel } from 'drizzle-orm';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+// Detect if we are running in a Node environment
+const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
+
+// Safe __dirname for ESM/CommonJS and Metro bundler compatibility
+const __filename = '';
+const __dirname = '.';
 
 dotenv.config();
 
@@ -22,24 +24,26 @@ export function isMockMode(): boolean {
 
 const DB_PATH = process.env.DATABASE_PATH
   ? path.resolve(process.env.DATABASE_PATH)
-  : path.resolve(__dirname, '../tablebook.db');
+  : path.resolve(process.cwd(), 'tablebook.db');
 
 // Database Instances
 let _db: any = null;
-let _sqlite: Database.Database | null = null;
-let _pool: pg.Pool | null = null;
+let _sqlite: any = null;
+let _pool: any = null;
 
 /**
  * Initializes the Database (SQLite for local, Postgres for Cloud).
  */
 export function initDatabases() {
   if (_db) return { db: _db };
+  if (!isNode) return { db: null };
 
   const dbUrl = process.env.DATABASE_URL;
 
   // 1. Cloud Postgres Mode
   if (dbUrl?.startsWith('postgres')) {
     try {
+      const pg = eval('require("pg")');
       _pool = new pg.Pool({
         connectionString: dbUrl,
         ssl: { rejectUnauthorized: false }
@@ -53,6 +57,7 @@ export function initDatabases() {
   // 2. Local SQLite Mode
   else if (!isMockMode()) {
     try {
+      const Database = eval('require("better-sqlite3")');
       _sqlite = new Database(DB_PATH);
       _sqlite.pragma('journal_mode = WAL');
       _sqlite.pragma('foreign_keys = ON');
@@ -98,25 +103,36 @@ export const schema = new Proxy({} as any, {
   }
 }) as typeof pgSchema;
 
-// Individually export proxies for all tables to maintain compatibility with existing router imports
-export const users = new Proxy({} as any, { get: (_, prop) => (schema.users as any)[prop] });
-export const restaurants = new Proxy({} as any, { get: (_, prop) => (schema.restaurants as any)[prop] });
-export const tables = new Proxy({} as any, { get: (_, prop) => (schema.tables as any)[prop] });
-export const bookings = new Proxy({} as any, { get: (_, prop) => (schema.bookings as any)[prop] });
-export const customers = new Proxy({} as any, { get: (_, prop) => (schema.customers as any)[prop] });
-export const menuItems = new Proxy({} as any, { get: (_, prop) => (schema.menuItems as any)[prop] });
-export const deliveryOrders = new Proxy({} as any, { get: (_, prop) => (schema.deliveryOrders as any)[prop] });
-export const reviews = new Proxy({} as any, { get: (_, prop) => (schema.reviews as any)[prop] });
-export const staff = new Proxy({} as any, { get: (_, prop) => (schema.staff as any)[prop] });
+// Individually export proxies for all tables
+export const users = schema.users;
+export const restaurants = schema.restaurants;
+export const tables = schema.tables;
+export const bookings = schema.bookings;
+export const customers = schema.customers;
+export const menuItems = schema.menuItems;
+export const deliveryOrders = schema.deliveryOrders;
+export const reviews = schema.reviews;
+export const staff = schema.staff;
+
+// Export Types for Routers
+export type User = InferSelectModel<typeof pgSchema.users>;
+export type Restaurant = InferSelectModel<typeof pgSchema.restaurants>;
+export type Table = InferSelectModel<typeof pgSchema.tables>;
+export type Booking = InferSelectModel<typeof pgSchema.bookings>;
+export type Customer = InferSelectModel<typeof pgSchema.customers>;
+export type MenuItem = InferSelectModel<typeof pgSchema.menuItems>;
+export type DeliveryOrder = InferSelectModel<typeof pgSchema.deliveryOrders>;
+export type Review = InferSelectModel<typeof pgSchema.reviews>;
+export type Staff = InferSelectModel<typeof pgSchema.staff>;
 
 export function closeDb() {
   if (_sqlite) {
-    _sqlite.close();
+    try { _sqlite.close(); } catch {}
     _sqlite = null;
     console.log('[DB] Local SQLite connection closed');
   }
   if (_pool) {
-    _pool.end();
+    try { _pool.end(); } catch {}
     _pool = null;
     console.log('[DB] Cloud PostgreSQL pool closed');
   }

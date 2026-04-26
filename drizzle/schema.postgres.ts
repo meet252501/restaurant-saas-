@@ -10,6 +10,7 @@ export const users = pgTable('users', {
   email:        text('email'),
   phone:        text('phone'),
   pinCode:      text('pin_code'),
+  password:     text('password'),
   loginMethod:  text('login_method').default('oauth'),
   role:         text('role').default('waiter'),
   lastSignedIn:   text('last_signed_in'),

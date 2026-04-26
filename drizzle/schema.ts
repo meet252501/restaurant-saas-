@@ -14,6 +14,7 @@ export const users = sqliteTable('users', {
   email:        text('email'),
   phone:        text('phone'),
   pinCode:      text('pin_code'),          // Hashed POS login PIN
+  password:     text('password'),
   loginMethod:  text('login_method').default('oauth'),
   role:         text('role').$type<'owner' | 'manager' | 'host' | 'waiter'>().default('waiter'),
   lastSignedIn:   text('last_signed_in'),    // ISO string

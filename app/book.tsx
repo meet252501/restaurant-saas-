@@ -230,7 +230,7 @@ export default function PublicBookingPage() {
         <View style={styles.waBox}>
           <Ionicons name="logo-whatsapp" size={24} color="#25D366" />
           <Text style={styles.waBoxText}>
-            A WhatsApp confirmation has been sent to {phone}. You'll also get a reminder 2 hours before!
+            A WhatsApp confirmation has been sent to {phone}. You&apos;ll also get a reminder 2 hours before!
           </Text>
         </View>
         <Pressable style={styles.nextBtn} onPress={() => {

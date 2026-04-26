@@ -10,6 +10,7 @@ import { QuickAccessButton } from '../../components/QuickAccessMenu';
 import { trpc, RESTAURANT_ID } from '../../lib/trpc';
 import { Colors, Spacing, Typography, Radius, Shadows } from '../../lib/theme';
 import { useOfflineBookings } from '../../utils/useOfflineBookings';
+import { queueMutation, getOfflineDb } from '../../utils/offlineDb';
 
 const FILTERS = ['all', 'pending', 'confirmed', 'checked_in', 'completed', 'cancelled'] as const;
 type Filter = typeof FILTERS[number];
@@ -68,7 +69,7 @@ function InlineBookingCard({ booking, onStatusChange }: { booking: any; onStatus
             </Text>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.guestName}>{booking.customerName || booking.guestName || 'Guest'}</Text>
+            <Text style={[styles.guestName, { flex: 1 }]} numberOfLines={2}>{booking.customerName || booking.guestName || 'Guest'}</Text>
             <Text style={styles.guestPhone}>{booking.customerPhone || booking.guestPhone || '—'}</Text>
           </View>
           <View style={[styles.statusBadge, { backgroundColor: color + '22', borderColor: color + '55' }]}>
@@ -142,7 +143,7 @@ export default function BookingsScreen() {
       trpcUtils.booking.listByDate.invalidate();
       refetch();
     },
-    onError: (e) => console.log('TRPC Update Error (handled by offline queue):', e.message),
+    onError: (e: any) => console.log('TRPC Update Error (handled by offline queue):', e.message),
   });
 
   const handleStatusChange = (id: string, status: string) => {
@@ -153,11 +154,9 @@ export default function BookingsScreen() {
     const confirmAction = async () => {
       if (isOfflineMode) {
         // Queue the mutation locally
-        const { queueMutation } = require('../../utils/offlineDb');
         await queueMutation('updateBookingStatus', { id, status });
         
         // Optimistically update the local DB
-        const { getOfflineDb } = require('../../utils/offlineDb');
         const db = await getOfflineDb();
         await db.runAsync('UPDATE bookings SET status = ? WHERE id = ?', [status, id]);
         refetch();

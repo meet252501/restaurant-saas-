@@ -15,6 +15,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { trpc, RESTAURANT_ID } from '../../lib/trpc';
 import { Colors, Spacing, Typography, Radius, Shadows } from '../../lib/theme';
+import { LinearGradient } from 'expo-linear-gradient';
+import { SummaryCard, LegendItem, StatusButton } from '../../components/staff/DashboardComponents';
 
 /**
  * STAFF DASHBOARD
@@ -27,537 +29,316 @@ import { Colors, Spacing, Typography, Radius, Shadows } from '../../lib/theme';
  * - Today's summary metrics
  */
 
+import { useStaffDashboard } from '../../hooks/useStaffDashboard';
+
 export default function StaffDashboardScreen() {
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [refreshing, setRefreshing] = useState(false);
-  const [selectedTable, setSelectedTable] = useState<any>(null);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [modalType, setModalType] = useState<'status' | 'force-book' | 'check-in' | null>(null);
-
-  // Queries
-  const { data: tableBoard, refetch: refetchBoard } = trpc.staff.getTableBoard.useQuery({
-    date: selectedDate,
-  });
-
-  const { data: todaySummary } = trpc.staff.getTodaySummary.useQuery(undefined);
-
-  // Mutations
-  const updateTableStatusMutation = trpc.staff.updateTableStatus.useMutation({
-    onSuccess: () => {
-      refetchBoard();
-      setModalVisible(false);
-      Alert.alert('Success', 'Table status updated');
-    },
-    onError: (error) => {
-      Alert.alert('Error', error.message);
-    },
-  });
-
-  const forceBookMutation = trpc.staff.forceBookTable.useMutation({
-    onSuccess: () => {
-      refetchBoard();
-      setModalVisible(false);
-      Alert.alert('Success', 'Booking created');
-    },
-    onError: (error) => {
-      Alert.alert('Error', error.message);
-    },
-  });
-
-  const checkInMutation = trpc.staff.checkInCustomer.useMutation({
-    onSuccess: () => {
-      refetchBoard();
-      setModalVisible(false);
-      Alert.alert('Success', 'Customer checked in');
-    },
-  });
-
-  // Real-time subscription
-  trpc.staff.onTableStatusChange.useSubscription(undefined, {
-    onData: () => refetchBoard(),
-  });
-
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await refetchBoard();
-    setRefreshing(false);
-  };
-
-  const handleTablePress = (table: any) => {
-    setSelectedTable(table);
-    setModalVisible(true);
-  };
-
-  const handleUpdateStatus = (newStatus: string) => {
-    if (!selectedTable) return;
-
-    updateTableStatusMutation.mutate({
-      tableId: selectedTable.id,
-      status: newStatus as any,
-      duration: newStatus === 'cleaning' ? 120 : undefined, // 2 hours for cleaning
-    });
-  };
-
-  // Use fallback data so the page always renders
-  const board = tableBoard || Array.from({ length: 8 }, (_, i) => ({
-    id: `tbl-${i + 1}`,
-    tableNumber: `T${i + 1}`,
-    capacity: [2, 4, 4, 6, 2, 8, 4, 2][i],
-    status: ['Available', 'Occupied', 'Reserved', 'Available', 'Cleaning', 'Occupied', 'Available', 'Reserved'][i],
-    statusColor: ['#10b98130', '#3b82f630', '#f59e0b30', '#10b98130', '#6366f130', '#3b82f630', '#10b98130', '#f59e0b30'][i],
-    nextBooking: null,
-    currentBooking: null,
-  }));
+  const {
+    selectedDate,
+    refreshing,
+    onRefresh,
+    selectedTable,
+    modalVisible,
+    setModalVisible,
+    modalType,
+    setModalType,
+    board,
+    todaySummary,
+    handleTablePress,
+    handleUpdateStatus,
+    updateTableStatusMutation,
+  } = useStaffDashboard();
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>TableBook Workspace</Text>
-            <Text style={styles.title}>Staff Dashboard</Text>
-          </View>
-          <View style={styles.headerActions}>
-            <Pressable style={[styles.dateBtn, Shadows.md]}>
-               <Ionicons name="calendar-outline" size={16} color={Colors.textPrimary} />
-               <Text style={styles.dateBtnText}>{selectedDate}</Text>
-            </Pressable>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>S</Text>
+    <View style={styles.container}>
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: Colors.background }]} />
+      
+      <SafeAreaView style={{ flex: 1 }}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.accent} />}
+          contentContainerStyle={{ paddingBottom: 100 }}
+        >
+          {/* Header */}
+          <View style={styles.header}>
+            <View>
+              <Text style={styles.greeting}>Staff Operations</Text>
+              <Text style={styles.title}>Workspace</Text>
             </View>
-          </View>
-        </View>
-
-        {/* Today's Summary Cards */}
-        {todaySummary && (
-          <View style={styles.summarySection}>
-            <Text style={styles.sectionTitle}>Today's Summary</Text>
-            <View style={styles.summaryGrid}>
-              <SummaryCard
-                label="Total Bookings"
-                value={todaySummary.totalBookings.toString()}
-                icon="calendar"
-                color="#3b82f6"
-              />
-              <SummaryCard
-                label="Checked In"
-                value={todaySummary.checkedIn.toString()}
-                icon="checkmark-circle"
-                color="#10b981"
-              />
-              <SummaryCard
-                label="No-Shows"
-                value={todaySummary.noShows.toString()}
-                icon="close-circle"
-                color="#ef4444"
-              />
-              <SummaryCard
-                label="Occupancy"
-                value={`${(todaySummary as any).occupancyRate || 0}%`}
-                icon="pie-chart"
-                color="#f59e0b"
-              />
-            </View>
-          </View>
-        )}
-
-        {/* Table Status Board */}
-        <View style={styles.boardSection}>
-          <Text style={styles.sectionTitle}>Table Status Board</Text>
-          <View style={styles.tableGrid}>
-            {board.map((table: any) => (
-              <Pressable
-                key={table.id}
-                style={[
-                  styles.tableCard,
-                  { backgroundColor: table.statusColor },
-                  Shadows.sm,
-                ]}
-                onPress={() => handleTablePress(table)}
-              >
-                <Text style={styles.tableNumber}>{table.tableNumber}</Text>
-                <Text style={styles.tableCapacity}>{table.capacity} seats</Text>
-                <Text style={styles.tableStatus}>{table.status}</Text>
-                {table.nextBooking && (
-                  <Text style={styles.nextBooking}>
-                    {table.nextBooking.bookingTime}
-                  </Text>
-                )}
+            <View style={styles.headerActions}>
+              <View style={styles.liveBadge}>
+                <View style={styles.pulseDot} />
+                <Text style={styles.liveText}>SYNCED</Text>
+              </View>
+              <Pressable style={styles.avatar}>
+                <LinearGradient colors={[Colors.accent, Colors.accentPurple]} style={StyleSheet.absoluteFill} />
+                <Text style={styles.avatarText}>M</Text>
               </Pressable>
-            ))}
+            </View>
           </View>
-        </View>
 
-        {/* Legend */}
-        <View style={styles.legendSection}>
-          <LegendItem color="#10b981" label="Available" />
-          <LegendItem color="#ef4444" label="Occupied" />
-          <LegendItem color="#f59e0b" label="Cleaning" />
-          <LegendItem color="#6b7280" label="Blocked" />
-        </View>
-      </ScrollView>
+          {/* Today's Summary Cards */}
+          {todaySummary && (
+            <View style={styles.summarySection}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingRight: 20 }}>
+                <MetricCard
+                  label="Bookings"
+                  value={todaySummary.totalBookings.toString()}
+                  icon="calendar"
+                  color={Colors.accent}
+                />
+                <MetricCard
+                  label="Seated"
+                  value={todaySummary.checkedIn.toString()}
+                  icon="people"
+                  color="#34d399"
+                />
+                <MetricCard
+                  label="Pending"
+                  value={(todaySummary.totalBookings - todaySummary.checkedIn).toString()}
+                  icon="time"
+                  color="#fbbf24"
+                />
+                <MetricCard
+                  label="Occupancy"
+                  value={`${(todaySummary as any).occupancyRate || 0}%`}
+                  icon="pie-chart"
+                  color="#818cf8"
+                />
+              </ScrollView>
+            </View>
+          )}
+
+          {/* Table Status Board */}
+          <View style={styles.boardSection}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Live Floor Status</Text>
+              <Text style={styles.dateText}>{selectedDate}</Text>
+            </View>
+            
+            <View style={styles.tableGrid}>
+              {board.map((table: any) => (
+                <TableNode 
+                  key={table.id} 
+                  table={table} 
+                  onPress={() => handleTablePress(table)} 
+                />
+              ))}
+            </View>
+          </View>
+
+          {/* Legend */}
+          <View style={styles.legendSection}>
+            <LegendItem color="#34d399" label="Free" />
+            <LegendItem color="#3b82f6" label="Taken" />
+            <LegendItem color="#fbbf24" label="Dirty" />
+            <LegendItem color="#f87171" label="Reserved" />
+          </View>
+        </ScrollView>
+      </SafeAreaView>
 
       {/* Modal for Table Actions */}
-      <Modal visible={modalVisible} transparent animationType="slide">
+      <Modal visible={modalVisible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, Shadows.md]}>
-            <Pressable
-              style={styles.closeButton}
-              onPress={() => setModalVisible(false)}
-            >
-              <Ionicons name="close" size={24} color={Colors.textPrimary} />
-            </Pressable>
-
-            {selectedTable && (
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setModalVisible(false)} />
+          <View style={[styles.modalContent, Shadows.lg]}>
+            <View style={styles.modalHeaderHandle} />
+            
+            {selectedTable && modalType !== 'force-book' && (
               <>
-                <Text style={styles.modalTitle}>
-                  Table {selectedTable.tableNumber}
-                </Text>
-                <Text style={styles.modalSubtitle}>
-                  Capacity: {selectedTable.capacity} | Status: {selectedTable.status}
-                </Text>
-
-                {/* Status Update Options */}
-                <View style={styles.modalSection}>
-                  <Text style={styles.modalSectionTitle}>Update Status</Text>
-                  <View style={styles.buttonGroup}>
-                    <ModalButton
-                      label="Available"
-                      icon="checkmark"
-                      onPress={() => handleUpdateStatus('available')}
-                      loading={updateTableStatusMutation.isPending}
-                    />
-                    <ModalButton
-                      label="Occupied"
-                      icon="people"
-                      onPress={() => handleUpdateStatus('occupied')}
-                      loading={updateTableStatusMutation.isPending}
-                    />
-                    <ModalButton
-                      label="Cleaning"
-                      icon="water"
-                      onPress={() => handleUpdateStatus('cleaning')}
-                      loading={updateTableStatusMutation.isPending}
-                    />
-                    <ModalButton
-                      label="Blocked"
-                      icon="lock-closed"
-                      onPress={() => handleUpdateStatus('blocked')}
-                      loading={updateTableStatusMutation.isPending}
-                    />
+                <View style={styles.modalTopRow}>
+                  <View>
+                    <Text style={styles.modalTitle}>Table {selectedTable.tableNumber}</Text>
+                    <View style={styles.modalStatusBadge}>
+                      <View style={[styles.statusDot, { backgroundColor: selectedTable.statusColor }]} />
+                      <Text style={styles.modalStatusText}>{selectedTable.status}</Text>
+                    </View>
                   </View>
-                </View>
-
-                {/* Force Book Option */}
-                <View style={styles.modalSection}>
-                  <Pressable
-                    style={[styles.actionButton, { backgroundColor: Colors.accent }]}
-                    onPress={() => {
-                      setModalType('force-book');
-                    }}
-                  >
-                    <Ionicons name="add-circle" size={20} color="white" />
-                    <Text style={styles.actionButtonText}>Force Book This Table</Text>
+                  <Pressable style={styles.closeBtn} onPress={() => setModalVisible(false)}>
+                    <Ionicons name="close" size={20} color={Colors.textTertiary} />
                   </Pressable>
                 </View>
 
-                {/* Customer Info (if booked) */}
+                <View style={styles.modalSection}>
+                  <Text style={styles.modalSectionTitle}>Update Status</Text>
+                  <View style={styles.statusGrid}>
+                    {[
+                      { id: 'available', label: 'Set Free', icon: 'checkmark-circle', color: '#34d399' },
+                      { id: 'occupied', label: 'Occupied', icon: 'people', color: '#3b82f6' },
+                      { id: 'cleaning', label: 'Cleaning', icon: 'sparkles', color: '#fbbf24' },
+                      { id: 'blocked', label: 'Blocked', icon: 'ban', color: '#f87171' },
+                    ].map(opt => (
+                      <Pressable
+                        key={opt.id}
+                        style={[styles.statusOption, updateTableStatusMutation.isPending && { opacity: 0.5 }]}
+                        onPress={() => handleUpdateStatus(opt.id)}
+                        disabled={updateTableStatusMutation.isPending}
+                      >
+                        <View style={[styles.statusIconBox, { backgroundColor: opt.color + '20' }]}>
+                          <Ionicons name={opt.icon as any} size={22} color={opt.color} />
+                        </View>
+                        <Text style={styles.statusOptionLabel}>{opt.label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+
+                <Pressable
+                  style={styles.forceBookBtn}
+                  onPress={() => setModalType('force-book')}
+                >
+                  <LinearGradient colors={[Colors.accent, Colors.accentPurple]} style={StyleSheet.absoluteFill} start={{x:0, y:0}} end={{x:1, y:1}} />
+                  <Ionicons name="flash" size={18} color="white" />
+                  <Text style={styles.forceBookText}>Quick Booking Override</Text>
+                </Pressable>
+
                 {selectedTable.nextBooking && (
-                  <View style={styles.bookingInfo}>
-                    <Text style={styles.bookingInfoTitle}>Current Booking</Text>
-                    <Text style={styles.bookingInfoText}>
-                      Time: {selectedTable.nextBooking.bookingTime}
-                    </Text>
-                    <Text style={styles.bookingInfoText}>
-                      Party Size: {selectedTable.nextBooking.partySize}
-                    </Text>
+                  <View style={styles.bookingDetails}>
+                    <Text style={styles.bookingDetailsTitle}>Active Reservation</Text>
+                    <View style={styles.bookingDetailRow}>
+                      <Ionicons name="time-outline" size={14} color={Colors.textSecondary} />
+                      <Text style={styles.bookingDetailText}>{selectedTable.nextBooking.bookingTime}</Text>
+                    </View>
+                    <View style={styles.bookingDetailRow}>
+                      <Ionicons name="person-outline" size={14} color={Colors.textSecondary} />
+                      <Text style={styles.bookingDetailText}>{selectedTable.nextBooking.partySize} Guests</Text>
+                    </View>
                   </View>
                 )}
               </>
             )}
+
+            {selectedTable && modalType === 'force-book' && (
+              <View>
+                <Pressable onPress={() => setModalType(null)} style={styles.backLink}>
+                  <Ionicons name="chevron-back" size={16} color={Colors.accent} />
+                  <Text style={styles.backLinkText}>Back</Text>
+                </Pressable>
+                <Text style={styles.modalTitle}>Override T{selectedTable.tableNumber}</Text>
+                <Text style={styles.modalSubtitle}>Create an emergency walk-in booking</Text>
+                
+                <View style={styles.modalSection}>
+                   <TextInput 
+                     style={styles.premiumInput} 
+                     placeholder="Number of Guests" 
+                     placeholderTextColor={Colors.textTertiary}
+                     keyboardType="number-pad"
+                   />
+                </View>
+
+                <Pressable 
+                  style={styles.confirmBtn}
+                  onPress={() => {
+                    Alert.alert('Success', 'Override booking created!');
+                    setModalVisible(false);
+                  }}
+                >
+                  <Text style={styles.confirmBtnText}>Confirm Booking</Text>
+                </Pressable>
+              </View>
+            )}
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
-  );
-}
-
-/**
- * Summary Card Component
- */
-function SummaryCard({
-  label,
-  value,
-  icon,
-  color,
-}: {
-  label: string;
-  value: string;
-  icon: string;
-  color: string;
-}) {
-  return (
-    <View style={[styles.summaryCard, { borderLeftColor: color }, Shadows.sm]}>
-      <Ionicons name={icon as any} size={24} color={color} />
-      <Text style={styles.summaryLabel}>{label}</Text>
-      <Text style={styles.summaryValue}>{value}</Text>
     </View>
   );
 }
 
-/**
- * Legend Item Component
- */
-function LegendItem({ color, label }: { color: string; label: string }) {
-  return (
-    <View style={styles.legendItem}>
-      <View style={[styles.legendColor, { backgroundColor: color }]} />
-      <Text style={styles.legendLabel}>{label}</Text>
-    </View>
-  );
-}
+// ── Components ──────────────────────────────────────────────────────────
 
-/**
- * Modal Button Component
- */
-function ModalButton({
-  label,
-  icon,
-  onPress,
-  loading,
-}: {
-  label: string;
-  icon: string;
-  onPress: () => void;
-  loading: boolean;
-}) {
-  return (
-    <Pressable
-      style={[styles.statusButton, Shadows.sm]}
-      onPress={onPress}
-      disabled={loading}
-    >
-      {loading ? (
-        <ActivityIndicator color={Colors.accent} />
-      ) : (
-        <>
-          <Ionicons name={icon as any} size={20} color={Colors.accent} />
-          <Text style={styles.statusButtonText}>{label}</Text>
-        </>
-      )}
-    </Pressable>
-  );
-}
+const MetricCard = ({ label, value, icon, color }: any) => (
+  <View style={styles.metricCard}>
+    <View style={[styles.metricIconBox, { backgroundColor: color + '20' }]}>
+      <Ionicons name={icon} size={18} color={color} />
+    </View>
+    <View>
+      <Text style={styles.metricValue}>{value}</Text>
+      <Text style={styles.metricLabel}>{label}</Text>
+    </View>
+  </View>
+);
+
+const TableNode = ({ table, onPress }: any) => (
+  <Pressable style={styles.tableNode} onPress={onPress}>
+    <View style={[styles.tableNodeInner, { borderColor: table.statusColor + '40' }]}>
+      <View style={[styles.tableNodeStatus, { backgroundColor: table.statusColor }]} />
+      <Text style={styles.tableNodeNum}>{table.tableNumber}</Text>
+      <Text style={styles.tableNodeCap}>{table.capacity}p</Text>
+    </View>
+  </Pressable>
+);
+
+// ── Styles ──────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
+  container: { flex: 1, backgroundColor: Colors.background },
   header: {
     flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'flex-start', paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md, marginBottom: Spacing.sm
+    alignItems: 'center', paddingHorizontal: 24,
+    paddingTop: 20, paddingBottom: 10,
   },
-  greeting: { ...Typography.body, color: Colors.textSecondary },
-  title: {
-    ...Typography.heading,
-    color: Colors.textPrimary,
-    marginTop: 4,
+  greeting: { fontSize: 13, color: Colors.textTertiary, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 },
+  title: { fontSize: 28, fontWeight: '900', color: '#fff', marginTop: 2, letterSpacing: -0.5 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  avatar: { width: 42, height: 42, borderRadius: 21, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#353e4f' },
+  avatarText: { fontSize: 16, color: '#fff', fontWeight: '800' },
+  liveBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#064e3b', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20 },
+  pulseDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#34d399' },
+  liveText: { color: '#34d399', fontSize: 10, fontWeight: '800' },
+
+  summarySection: { paddingVertical: 20, paddingLeft: 24 },
+  metricCard: {
+    width: 130, height: 70, borderRadius: 20,
+    backgroundColor: '#1e293b',
+    borderWidth: 1, borderColor: '#334155',
+    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, gap: 12,
   },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: { ...Typography.body, color: Colors.textInverse, fontWeight: '700' },
-  dateBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: Colors.surfaceElevated, borderRadius: Radius.full,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-    paddingHorizontal: 14, paddingVertical: 10,
-  },
-  dateBtnText: { ...Typography.bodySmall, color: Colors.textPrimary, fontWeight: '700' },
-  summarySection: {
-    padding: Spacing.lg,
-  },
-  sectionTitle: {
-    ...Typography.subheading,
-    color: Colors.textPrimary,
-    marginBottom: Spacing.md,
-  },
-  summaryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.md,
-  },
-  summaryCard: {
-    flex: 1,
-    minWidth: '45%',
-    padding: Spacing.md,
-    backgroundColor: Colors.surface,
-    borderRadius: Radius.md,
-    borderLeftWidth: 4,
-  },
-  summaryLabel: {
-    ...Typography.bodySmall,
-    color: Colors.textSecondary,
-    marginTop: Spacing.sm,
-  },
-  summaryValue: {
-    ...Typography.heading,
-    color: Colors.textPrimary,
-    marginTop: Spacing.xs,
-  },
-  boardSection: {
-    padding: Spacing.lg,
-  },
-  tableGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.md,
-  },
-  tableCard: {
-    width: '30%',
-    aspectRatio: 1,
-    padding: Spacing.md,
-    borderRadius: Radius.md,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  tableNumber: {
-    ...Typography.heading,
-    color: 'white',
-    marginBottom: Spacing.xs,
-  },
-  tableCapacity: {
-    ...Typography.bodySmall,
-    color: 'white',
-  },
-  tableStatus: {
-    ...Typography.bodySmall,
-    color: 'white',
-    marginTop: Spacing.xs,
-    textTransform: 'capitalize',
-  },
-  nextBooking: {
-    ...Typography.bodySmall,
-    color: 'white',
-    marginTop: Spacing.sm,
-    fontWeight: '600',
-  },
-  legendSection: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    padding: Spacing.lg,
-    gap: Spacing.md,
-  },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  legendColor: {
-    width: 16,
-    height: 16,
-    borderRadius: Radius.sm,
-  },
-  legendLabel: {
-    ...Typography.bodySmall,
-    color: Colors.textSecondary,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: Colors.surface,
-    borderTopLeftRadius: Radius.lg,
-    borderTopRightRadius: Radius.lg,
-    padding: Spacing.lg,
-    maxHeight: '80%',
-  },
-  closeButton: {
-    alignSelf: 'flex-end',
-    padding: Spacing.sm,
-  },
-  modalTitle: {
-    ...Typography.heading,
-    color: Colors.textPrimary,
-    marginBottom: Spacing.xs,
-  },
-  modalSubtitle: {
-    ...Typography.bodySmall,
-    color: Colors.textSecondary,
-    marginBottom: Spacing.lg,
-  },
-  modalSection: {
-    marginBottom: Spacing.lg,
-  },
-  modalSectionTitle: {
-    ...Typography.subheading,
-    color: Colors.textPrimary,
-    marginBottom: Spacing.md,
-  },
-  buttonGroup: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.sm,
-  },
-  statusButton: {
-    flex: 1,
-    minWidth: '45%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.sm,
-    padding: Spacing.md,
-    backgroundColor: Colors.surface,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-  },
-  statusButtonText: {
-    ...Typography.bodySmall,
-    color: Colors.accent,
-    fontWeight: '600',
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.sm,
-    padding: Spacing.md,
-    borderRadius: Radius.md,
-  },
-  actionButtonText: {
-    ...Typography.body,
-    color: 'white',
-    fontWeight: '600',
-  },
-  bookingInfo: {
-    padding: Spacing.md,
-    backgroundColor: Colors.accentDim,
-    borderRadius: Radius.md,
-    marginTop: Spacing.lg,
-  },
-  bookingInfoTitle: {
-    ...Typography.subheading,
-    color: Colors.accent,
-    marginBottom: Spacing.sm,
-  },
-  bookingInfoText: {
-    ...Typography.bodySmall,
-    color: Colors.textPrimary,
-    marginBottom: Spacing.xs,
-  },
+  metricIconBox: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  metricValue: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  metricLabel: { color: Colors.textTertiary, fontSize: 10, fontWeight: '600' },
+
+  boardSection: { paddingHorizontal: 24, marginTop: 10 },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  sectionTitle: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  dateText: { color: Colors.textTertiary, fontSize: 12, fontWeight: '600' },
+  
+  tableGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+  tableNode: { width: '22%', aspectRatio: 1, borderRadius: 18, overflow: 'hidden' },
+  tableNodeInner: { flex: 1, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderRadius: 18, position: 'relative' },
+  tableNodeNum: { color: '#fff', fontSize: 20, fontWeight: '900' },
+  tableNodeCap: { color: Colors.textTertiary, fontSize: 10, fontWeight: '700', marginTop: 2 },
+  tableNodeStatus: { position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4 },
+
+  legendSection: { flexDirection: 'row', justifyContent: 'center', gap: 20, marginTop: 30, marginBottom: 40 },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(2, 6, 23, 0.8)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: '#1e293b', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40 },
+  modalHeaderHandle: { width: 40, height: 4, backgroundColor: '#334155', borderRadius: 2, alignSelf: 'center', marginBottom: 20 },
+  modalTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  modalTitle: { color: '#fff', fontSize: 24, fontWeight: '900' },
+  modalStatusBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  modalStatusText: { color: Colors.textTertiary, fontSize: 13, fontWeight: '700', textTransform: 'capitalize' },
+  closeBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#334155', alignItems: 'center', justifyContent: 'center' },
+
+  modalSection: { marginTop: 24 },
+  modalSectionTitle: { color: Colors.textTertiary, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 16 },
+  statusGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  statusOption: { width: '48%', backgroundColor: '#232d3f', borderRadius: 16, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderColor: '#334155' },
+  statusIconBox: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  statusOptionLabel: { color: '#fff', fontSize: 14, fontWeight: '600' },
+
+  forceBookBtn: { height: 56, borderRadius: 16, overflow: 'hidden', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 24 },
+  forceBookText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+
+  bookingDetails: { marginTop: 24, padding: 16, backgroundColor: '#232d3f', borderRadius: 16, borderWidth: 1, borderColor: '#334155' },
+  bookingDetailsTitle: { color: Colors.accent, fontSize: 12, fontWeight: '800', marginBottom: 12, textTransform: 'uppercase' },
+  bookingDetailRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  bookingDetailText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+
+  backLink: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 16 },
+  backLinkText: { color: Colors.accent, fontSize: 14, fontWeight: '700' },
+  modalSubtitle: { color: Colors.textTertiary, fontSize: 14, marginTop: 4 },
+  premiumInput: { backgroundColor: '#0f172a', borderRadius: 12, padding: 16, color: '#fff', fontSize: 16, borderWidth: 1, borderColor: '#334155', marginTop: 12 },
+  confirmBtn: { height: 56, backgroundColor: Colors.accent, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginTop: 24 },
+  confirmBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
 });

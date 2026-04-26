@@ -5,10 +5,11 @@
 import React, { useState, useMemo } from 'react';
 import {
   View, Text, FlatList, StyleSheet, Pressable, SafeAreaView,
-  TextInput, Modal, KeyboardAvoidingView, Platform, Linking, Alert, Image,
+  TextInput, Modal, KeyboardAvoidingView, Platform, Linking, Alert, Image, ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { QuickAccessButton } from '../../components/QuickAccessMenu';
+import { trpc } from '../../lib/trpc';
 import { Colors, Spacing, Typography, Radius, Shadows } from '../../lib/theme';
 
 interface Guest {
@@ -33,11 +34,43 @@ const INITIAL_GUESTS: Guest[] = [
 type FilterMode = 'all' | 'vip' | 'repeat' | 'new';
 
 export default function CustomersScreen() {
-  const [guests, setGuests] = useState<Guest[]>(INITIAL_GUESTS);
+  const { data: serverGuests, isLoading, error, refetch } = trpc.booking.listCustomers.useQuery();
+  
   const [search, setSearch] = useState('');
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [addVisible, setAddVisible] = useState(false);
   const [detailGuest, setDetailGuest] = useState<Guest | null>(null);
+
+  const createCustomer = trpc.booking.createCustomer.useMutation({
+    onSuccess: () => {
+      refetch();
+      setAddVisible(false);
+      setNewName(''); setNewPhone(''); setNewNotes('');
+    },
+    onError: (err) => Alert.alert('Error', err.message),
+  });
+
+  const deleteCustomer = trpc.booking.deleteCustomer.useMutation({
+    onSuccess: () => {
+      refetch();
+      setDetailGuest(null);
+    },
+    onError: (err) => Alert.alert('Error', err.message),
+  });
+
+  // Map server data to Guest interface
+  const guests: Guest[] = useMemo(() => {
+    if (!serverGuests) return [];
+    return serverGuests.map((g: any) => ({
+      id: g.id,
+      name: g.name,
+      phone: g.phone || '—',
+      visitCount: g.visitCount || 0,
+      lastVisit: g.createdAt ? g.createdAt.split('T')[0] : '—',
+      tags: g.tags || '',
+      notes: g.notes || '',
+    }));
+  }, [serverGuests]);
 
   // Add guest form
   const [newName, setNewName]   = useState('');
@@ -55,7 +88,7 @@ export default function CustomersScreen() {
     if (filterMode === 'vip')    list = list.filter(g => g.visitCount >= 5);
     if (filterMode === 'repeat') list = list.filter(g => g.visitCount >= 2 && g.visitCount < 5);
     if (filterMode === 'new')    list = list.filter(g => g.visitCount < 2);
-    return list.sort((a, b) => b.visitCount - a.visitCount);
+    return [...list].sort((a, b) => b.visitCount - a.visitCount);
   }, [guests, search, filterMode]);
 
   const vipCount    = guests.filter(g => g.visitCount >= 5).length;
@@ -66,18 +99,22 @@ export default function CustomersScreen() {
       Alert.alert('Required', 'Please enter the guest\'s name.');
       return;
     }
-    const newGuest: Guest = {
-      id: `c_${Date.now()}`,
+    createCustomer.mutate({
       name: newName.trim(),
-      phone: newPhone.trim() || '—',
-      visitCount: 0,
-      lastVisit: '—',
-      tags: '',
+      phone: newPhone.trim(),
       notes: newNotes.trim(),
-    };
-    setGuests(prev => [newGuest, ...prev]);
-    setNewName(''); setNewPhone(''); setNewNotes('');
-    setAddVisible(false);
+    });
+  };
+
+  const handleDeleteGuest = (id: string) => {
+    Alert.alert(
+      'Delete Guest',
+      'Are you sure you want to remove this guest from the CRM?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => deleteCustomer.mutate({ id }) },
+      ]
+    );
   };
 
   const handleCall = (phone: string) => {
@@ -144,27 +181,36 @@ export default function CustomersScreen() {
       </View>
 
       {/* ── Guest List ──────────────────────────────────────────── */}
-      <FlatList
-        data={filtered}
-        keyExtractor={item => item.id}
-        contentContainerStyle={styles.list}
-        showsVerticalScrollIndicator={false}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Ionicons name="people-outline" size={40} color={Colors.textTertiary} />
-            <Text style={styles.emptyText}>No guests match your search</Text>
-          </View>
-        }
-        renderItem={({ item }) => (
-          <GuestCard
-            guest={item}
-            onPress={() => setDetailGuest(item)}
-            onCall={() => handleCall(item.phone)}
-            onWhatsApp={() => handleWhatsApp(item.phone)}
-          />
-        )}
-        ListFooterComponent={<View style={{ height: 100 }} />}
-      />
+      {isLoading ? (
+        <View style={styles.empty}>
+          <ActivityIndicator color={Colors.accent} />
+          <Text style={styles.emptyText}>Syncing Guest CRM…</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={filtered}
+          keyExtractor={item => item.id}
+          contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Ionicons name="people-outline" size={40} color={Colors.textTertiary} />
+              <Text style={styles.emptyText}>No guests match your search</Text>
+            </View>
+          }
+          renderItem={({ item }) => (
+            <GuestCard
+              guest={item}
+              onPress={() => setDetailGuest(item)}
+              onCall={() => handleCall(item.phone)}
+              onWhatsApp={() => handleWhatsApp(item.phone)}
+            />
+          )}
+          ListFooterComponent={<View style={{ height: 100 }} />}
+          refreshing={isLoading}
+          onRefresh={refetch}
+        />
+      )}
 
       {/* ── Add Guest Modal ─────────────────────────────────────── */}
       <Modal visible={addVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setAddVisible(false)}>
@@ -204,11 +250,21 @@ export default function CustomersScreen() {
             />
 
             <Pressable
-              style={({ pressed }) => [styles.submitBtn, pressed && { opacity: 0.8 }]}
+              style={({ pressed }) => [
+                styles.submitBtn,
+                (pressed || createCustomer.isPending) && { opacity: 0.8 }
+              ]}
               onPress={handleAddGuest}
+              disabled={createCustomer.isPending}
             >
-              <Ionicons name="checkmark-circle" size={20} color="#fff" />
-              <Text style={styles.submitBtnText}>Add to Guest List</Text>
+              {createCustomer.isPending ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle" size={20} color="#fff" />
+                  <Text style={styles.submitBtnText}>Add to Guest List</Text>
+                </>
+              )}
             </Pressable>
           </View>
         </KeyboardAvoidingView>
@@ -277,6 +333,24 @@ export default function CustomersScreen() {
                 <Text style={styles.notesLabel}>Phone Number</Text>
                 <Text style={styles.notesText}>{detailGuest.phone}</Text>
               </View>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.deleteBtn,
+                  (pressed || deleteCustomer.isPending) && { opacity: 0.7 }
+                ]}
+                onPress={() => handleDeleteGuest(detailGuest.id)}
+                disabled={deleteCustomer.isPending}
+              >
+                {deleteCustomer.isPending ? (
+                  <ActivityIndicator color={Colors.error} />
+                ) : (
+                  <>
+                    <Ionicons name="trash-outline" size={18} color={Colors.error} />
+                    <Text style={styles.deleteBtnText}>Delete Guest Record</Text>
+                  </>
+                )}
+              </Pressable>
             </View>
           </View>
         )}
@@ -316,7 +390,7 @@ function GuestCard({
       {/* Info */}
       <View style={styles.info}>
         <View style={styles.nameRow}>
-          <Text style={styles.name} numberOfLines={1}>{guest.name}</Text>
+          <Text style={styles.name}>{guest.name}</Text>
           {isVip && (
             <View style={styles.vipBadge}>
               <Ionicons name="star" size={9} color={Colors.accent} />
@@ -513,4 +587,12 @@ const styles = StyleSheet.create({
   },
   notesLabel: { ...Typography.caption, color: Colors.textTertiary, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   notesText: { ...Typography.body, color: Colors.textPrimary },
+
+  deleteBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, marginTop: 'auto', paddingVertical: 16,
+    borderWidth: 1, borderColor: Colors.error + '30', borderRadius: Radius.lg,
+    backgroundColor: Colors.error + '10',
+  },
+  deleteBtnText: { color: Colors.error, fontWeight: '700', fontSize: 14 },
 });

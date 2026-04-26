@@ -12,6 +12,6 @@ export default defineConfig({
   out: "./drizzle/migrations",
   dialect: isPostgres ? "postgresql" : "sqlite",
   dbCredentials: {
-    url: isPostgres ? dbUrl : (process.env.DATABASE_PATH ?? path.resolve("./tablebook.db")),
+    url: isPostgres ? (dbUrl as string) : (process.env.DATABASE_PATH ?? path.resolve("./tablebook.db")),
   },
 });

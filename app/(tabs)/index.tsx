@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { trpc, RESTAURANT_ID } from '../../lib/trpc';
-import { Colors } from '../../lib/theme';
+import { Colors, Shadows } from '../../lib/theme';
 import { useFadeIn, usePulse, useStaggeredFadeIn } from '../../lib/animations';
 import { QuickAccessButton } from '../../components/QuickAccessMenu';
 import { useOfflineBookings } from '../../utils/useOfflineBookings';
@@ -47,11 +47,15 @@ export default function DashboardScreen() {
         };
       });
     }
-    return trends.slice(-7).map((d: any) => ({
-      day: new Date(d.date).toLocaleDateString('en-IN', { weekday: 'short' }),
-      revenue: parseInt(d.revenue || '0'),
-      bookings: d.bookings || 0,
-    }));
+    return trends.slice(-7).map((d: any) => {
+      const revenue = parseInt(d.revenue || '0');
+      const bookings = d.bookings || 0;
+      return {
+        day: new Date(d.date || Date.now()).toLocaleDateString('en-IN', { weekday: 'short' }),
+        revenue: isNaN(revenue) ? 0 : revenue,
+        bookings: isNaN(bookings) ? 0 : bookings,
+      };
+    });
   }, [trends]);
 
   const maxRevenue = Math.max(...chartData.map(d => d.revenue), 1);
@@ -67,7 +71,9 @@ export default function DashboardScreen() {
       done: Colors.textTertiary, no_show: Colors.error, cancelled: '#ef4444',
     };
     return bookingsList.slice(0, 5).map((b: any) => {
-      const mins = Math.floor((Date.now() - new Date(b.createdAt || Date.now()).getTime()) / 60000);
+      const createdAt = b.createdAt ? new Date(b.createdAt).getTime() : Date.now();
+      const diff = Date.now() - createdAt;
+      const mins = Math.floor(Math.max(diff, 0) / 60000);
       return {
         id: `TBL-${b.tableId?.slice(-2) || '00'}`,
         action: `${b.status === 'done' ? 'Done' : b.status === 'seated' ? 'Seated' : 'Confirmed'} • ${b.partySize} pax`,
@@ -108,34 +114,45 @@ export default function DashboardScreen() {
       isDesktop ? { flex: 1 } : { width: cardWidth },
       { opacity: kpiAnim.opacities[index], transform: [{ translateY: kpiAnim.translates[index] }] },
     ]}>
-      <View style={{ padding: 14 }}>
+      <View style={{ padding: 18 }}>
         <View style={styles.kpiTop}>
-          <Text style={styles.kpiLabel}>{label}</Text>
-          <View style={[styles.kpiIcon, { backgroundColor: color + '18' }]}>
-            <Ionicons name={icon as any} size={14} color={color} />
+          <View style={[styles.kpiIconBox, { backgroundColor: color + '20' }]}>
+            <Ionicons name={icon as any} size={24} color={color} />
+          </View>
+          <View>
+            <Text style={styles.kpiValue}>{value}</Text>
+            <Text style={styles.kpiLabel}>{label}</Text>
           </View>
         </View>
-        <Text style={styles.kpiValue}>{value}</Text>
+        <View style={styles.kpiTrend}>
+          <Ionicons name="trending-up" size={12} color={color} />
+          <Text style={[styles.kpiTrendText, { color }]}>+12% vs last week</Text>
+        </View>
+        <View style={[styles.kpiIndicator, { backgroundColor: color }]} />
       </View>
     </Animated.View>
   );
 
   return (
     <SafeAreaView style={styles.safe}>
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: '#090B10' }]} />
+      
+
       <View style={styles.main}>
         {/* Header */}
-        <View style={[styles.header, { paddingHorizontal: isDesktop ? 32 : 16, paddingVertical: isDesktop ? 20 : 12 }]}>
+        <View style={[styles.header, { paddingHorizontal: isDesktop ? 32 : 16, paddingVertical: isDesktop ? 24 : 16 }]}>
+
           <View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Text style={[styles.pageTitle, !isDesktop && { fontSize: 20 }]}>Overview</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Text style={[styles.pageTitle, !isDesktop && { fontSize: 22 }]}>Dashboard</Text>
               {(bookingsOffline || deliveryOffline) && (
                 <View style={styles.offlineBadge}>
                   <Ionicons name="cloud-offline-outline" size={12} color="#fff" />
-                  <Text style={styles.offlineBadgeText}>Offline</Text>
+                  <Text style={styles.offlineBadgeText}>OFFLINE MODE</Text>
                 </View>
               )}
             </View>
-            <Text style={styles.pageSub}>{formatDate(today)}</Text>
+            <Text style={styles.pageSub}>{formatDate(today).toUpperCase()}</Text>
           </View>
           <QuickAccessButton />
         </View>
@@ -161,24 +178,29 @@ export default function DashboardScreen() {
           </View>
 
           {/* ── Quick Actions Row ── */}
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-
-            {/* New Booking CTA */}
+          <View style={{ flexDirection: 'row', gap: 12 }}>
             <Pressable
-              style={styles.newBookingBtn}
+              style={({ pressed }) => [
+                styles.actionCTA,
+                pressed && { transform: [{ scale: 0.98 }] }
+              ]}
               onPress={() => router.push('/new-booking')}
             >
-              <Ionicons name="add-circle-outline" size={20} color={Colors.accent} />
-              <Text style={styles.newBookingText}>New Booking</Text>
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: '#1e293b' }]} />
+              <Ionicons name="add-circle-outline" size={22} color={Colors.accent} />
+              <Text style={styles.actionCTAText}>New Booking</Text>
             </Pressable>
 
-            {/* Menu Editor CTA */}
             <Pressable
-              style={styles.newBookingBtn}
+              style={({ pressed }) => [
+                styles.actionCTA,
+                pressed && { transform: [{ scale: 0.98 }] }
+              ]}
               onPress={() => router.push('/menu-editor')}
             >
-              <Ionicons name="restaurant-outline" size={20} color={Colors.accent} />
-              <Text style={styles.newBookingText}>Edit Menu</Text>
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: '#1e293b' }]} />
+              <Ionicons name="restaurant-outline" size={20} color={Colors.accentPurple} />
+              <Text style={[styles.actionCTAText, { color: Colors.accentPurple }]}>Edit Menu</Text>
             </Pressable>
           </View>
 
@@ -188,7 +210,7 @@ export default function DashboardScreen() {
             <Animated.View style={[styles.card, isDesktop ? { flex: 2 } : {}, { opacity: chartAnim.opacity, transform: [{ translateY: chartAnim.translateY }] }]}>
               <View style={styles.cardHead}>
                 <View>
-                  <Text style={styles.cardTitle}>7-Day Revenue</Text>
+                  <Text style={styles.cardTitle}>Dashboard</Text>
                   <Text style={styles.cardSub}>₹{chartData.reduce((a, d) => a + d.revenue, 0).toLocaleString('en-IN')} total</Text>
                 </View>
                 <View style={{ flexDirection: 'row', gap: 12 }}>
@@ -231,13 +253,11 @@ export default function DashboardScreen() {
                           return (
                             <View key={i} style={{ flex: 1, alignItems: 'center' }}>
                               <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 3 }}>
-                                <LinearGradient
-                                  colors={[Colors.accent, Colors.accent + '40']}
-                                  style={{ width: isDesktop ? 16 : 12, height: revH, borderTopLeftRadius: 4, borderTopRightRadius: 4 }}
+                                <View
+                                  style={{ width: isDesktop ? 16 : 12, height: revH, borderTopLeftRadius: 4, borderTopRightRadius: 4, backgroundColor: Colors.accent }}
                                 />
-                                <LinearGradient
-                                  colors={[Colors.accentPurple, Colors.accentPurple + '40']}
-                                  style={{ width: isDesktop ? 10 : 7, height: bookH, borderTopLeftRadius: 4, borderTopRightRadius: 4, opacity: 0.9 }}
+                                <View
+                                  style={{ width: isDesktop ? 10 : 7, height: bookH, borderTopLeftRadius: 4, borderTopRightRadius: 4, opacity: 0.9, backgroundColor: Colors.accentPurple }}
                                 />
                               </View>
                               <Text style={{ color: Colors.textTertiary, fontSize: 9, marginTop: 6 }}>{d.day}</Text>
@@ -269,7 +289,10 @@ export default function DashboardScreen() {
                 {recentActivity.map((a: any, i: any) => (
                   <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                     <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: a.color }}>
-                      <Animated.View style={{ position: 'absolute', width: 8, height: 8, borderRadius: 4, backgroundColor: a.color, opacity: pulse.opacity, transform: [{ scale: pulse.scale }] }} />
+                      <Animated.View style={{ 
+                        position: 'absolute', width: 8, height: 8, borderRadius: 4, backgroundColor: a.color, 
+                        opacity: pulse.opacity as any, transform: [{ scale: pulse.scale }] as any 
+                      }} />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: Colors.textPrimary, fontSize: 13, fontWeight: '600' }}>{a.id}</Text>
@@ -315,11 +338,9 @@ export default function DashboardScreen() {
                       <Text style={{ color: Colors.textTertiary, fontSize: 12 }}>₹{src.revenue.toLocaleString('en-IN')} ({src.pct}%)</Text>
                     </View>
                     <View style={styles.progressBg}>
-                      <LinearGradient
-                        colors={[srcColors[i % srcColors.length], srcColors[i % srcColors.length] + '50']}
-                        start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-                        style={[styles.progressFill, { width: `${Math.max(src.pct, 5)}%` }]}
-                      />
+                        <View
+                          style={[styles.progressFill, { width: `${Math.max(src.pct, 5)}%`, backgroundColor: srcColors[i % srcColors.length] }]}
+                        />
                     </View>
                   </View>
                 ))}
@@ -367,6 +388,7 @@ function formatDate(dateStr: string) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
+  bgGlow: { position: 'absolute', width: 400, height: 400, borderRadius: 200 },
   main: { flex: 1 },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
@@ -385,21 +407,26 @@ const styles = StyleSheet.create({
   // KPI Row
   kpiRow: { flexDirection: 'row', gap: 12 },
   kpiCard: {
-    backgroundColor: Colors.surface, borderRadius: 14,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    backgroundColor: Colors.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
     overflow: 'hidden',
   },
-  kpiTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  kpiLabel: { color: Colors.textTertiary, fontSize: 11, fontWeight: '500' },
-  kpiIcon: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  kpiValue: { color: Colors.textPrimary, fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
+  kpiTop: { flexDirection: 'row', gap: 12, alignItems: 'center' },
+  kpiIconBox: { width: 48, height: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  kpiLabel: { color: Colors.textTertiary, fontSize: 12, fontWeight: '600' },
+  kpiValue: { color: Colors.textPrimary, fontSize: 20, fontWeight: '800' },
+  kpiIndicator: { position: 'absolute', right: 0, top: 0, bottom: 0, width: 3, opacity: 0.8 },
 
   // Cards
   row: { flexDirection: 'row', gap: 14 },
   card: {
-    backgroundColor: Colors.surface, borderRadius: 16, padding: 18,
+    backgroundColor: '#1e293b', borderRadius: 24, padding: 20,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
   },
+  kpiTrend: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 12 },
+  kpiTrendText: { fontSize: 10, fontWeight: '700' },
   cardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 },
   cardTitle: { color: Colors.textPrimary, fontSize: 15, fontWeight: '600' },
   cardSub: { color: Colors.textTertiary, fontSize: 11, marginTop: 2 },
@@ -414,7 +441,7 @@ const styles = StyleSheet.create({
 
   // Delivery mini stat
   miniStat: {
-    backgroundColor: Colors.background, borderRadius: 12,
+    backgroundColor: '#1e293b', borderRadius: 12,
     flexDirection: 'row' as const, overflow: 'hidden' as const,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
     flexBasis: '47%', flexGrow: 1,
@@ -448,17 +475,29 @@ const styles = StyleSheet.create({
   },
   walkinIconBox: {
     width: 40, height: 40, borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#ffffff25',
     alignItems: 'center' as const, justifyContent: 'center' as const,
   },
   walkinTitle: { color: '#fff', fontSize: 14, fontWeight: '700' as const },
-  walkinSub:   { color: 'rgba(255,255,255,0.75)', fontSize: 10, marginTop: 1 },
+  walkinSub:   { color: '#ffffff90', fontSize: 10, marginTop: 1 },
 
-  newBookingBtn: {
-    flexDirection: 'row' as const, alignItems: 'center', gap: 6,
-    backgroundColor: Colors.surface, borderRadius: 14,
-    paddingHorizontal: 14, paddingVertical: 14,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
+  actionCTA: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: Colors.surfaceElevated,
+    borderRadius: 18,
+    paddingVertical: 18,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    overflow: 'hidden',
   },
-  newBookingText: { color: Colors.accent, fontSize: 13, fontWeight: '700' as const },
+  actionCTAText: {
+    color: Colors.accent,
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
 });

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { getOfflineDb } from './offlineDb';
-import { trpc, RESTAURANT_ID } from '../lib/trpc';
+import { trpc } from '../lib/trpc';
 import { Platform } from 'react-native';
 
 export function useOfflineBookings(date: string) {

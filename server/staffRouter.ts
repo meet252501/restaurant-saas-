@@ -29,7 +29,7 @@ export const staffRouter = router({
           .where(eq(tables.restaurantId, restaurantId));
       } catch (e) {
         console.warn("[DB] Table fetch failed, using mock data", e);
-        allTables = MOCK_TABLES;
+        allTables = MOCK_TABLES || [];
       }
 
       // Get all bookings for the day
@@ -155,6 +155,19 @@ export const staffRouter = router({
 
       const bookingId = `bk_override_${Date.now()}`;
 
+      const tableCheck = await db
+        .select()
+        .from(tables)
+        .where(and(eq(tables.id, input.tableId), eq(tables.restaurantId, restaurantId)))
+        .limit(1);
+
+      if (tableCheck.length === 0 && !isMock) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Table does not belong to your restaurant."
+        });
+      }
+
       const newBooking: any = {
         id: bookingId,
         restaurantId,
@@ -221,7 +234,7 @@ export const staffRouter = router({
             )
           );
 
-        const affected = (result as any).rowsAffected ?? (result as any).changes;
+        const affected = (result as any).rowCount ?? (result as any).rowsAffected ?? (result as any).changes ?? (Array.isArray(result) ? result.length : 0);
         if (affected === 0) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Booking not found or access denied." });
         }

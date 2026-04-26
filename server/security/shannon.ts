@@ -17,10 +17,13 @@ async function runAudit() {
   const now = new Date().toISOString();
   // Ensure test users exist in the DB for login tests
   await db.insert(users).values([
-    { openId: "owner_A", restaurantId: "restaurant_A", name: "Owner A", phone: "9876543210", pinCode: "1111", role: "manager", createdAt: now },
-    { openId: "owner_B", restaurantId: "restaurant_B", name: "Owner B", phone: "9876543211", pinCode: "2222", role: "manager", createdAt: now }
-  ]).onConflictDoNothing();
-  console.log('✅ Test Users initialized in DB.');
+    { openId: "owner_A", restaurantId: "restaurant_A", name: "Owner A", email: "owner_a@test.com", password: "password123", phone: "9876543210", pinCode: "1111", role: "manager", createdAt: now, failedAttempts: 0, lockoutUntil: null },
+    { openId: "owner_B", restaurantId: "restaurant_B", name: "Owner B", email: "owner_b@test.com", password: "password123", phone: "9876543211", pinCode: "2222", role: "manager", createdAt: now, failedAttempts: 0, lockoutUntil: null }
+  ]).onConflictDoUpdate({
+    target: users.openId,
+    set: { failedAttempts: 0, lockoutUntil: null }
+  });
+  console.log('✅ Test Users initialized/reset in DB.');
 
   // 1. Setup Test Subjects
   const mockUserA = { id: "owner_A", restaurantId: "restaurant_A", pin: "1111", role: "manager" };
@@ -30,8 +33,13 @@ async function runAudit() {
   
   // Create a caller with User A's context
   const callerA = appRouter.createCaller({
-    req: {} as any,
-    res: {} as any,
+    req: { headers: {} } as any,
+    res: { 
+      cookie: () => {}, 
+      clearCookie: () => {},
+      getHeader: () => '',
+      setHeader: () => {}
+    } as any,
     user: mockUserA as any
   });
 
@@ -96,17 +104,17 @@ async function runAudit() {
   // Step 6: Verifying Brute Force Protection
   console.log('\nStep 6: Verifying Brute Force Protection...');
   try {
-    // Attempt 5 wrong PINs
+    // Attempt 5 wrong passwords
     for (let i = 0; i < 5; i++) {
       try {
-        await callerA.auth.login({ pin: '9999', phoneNumber: '9876543210' });
-      } catch (e) {
-        // Expected
+        await (callerA.auth.login as any)({ email: 'owner_a@test.com', password: 'wrong_password' });
+      } catch (e: any) {
+        // console.log(`[SHANNON] Caught expected failure ${i+1}: ${e.message}`);
       }
     }
-    // The 6th attempt should be locked out even with CORRECT PIN (1111)
+    // The 6th attempt should be locked out even with CORRECT password
     try {
-      await callerA.auth.login({ pin: '1111', phoneNumber: '9876543210' });
+      await (callerA.auth.login as any)({ email: 'owner_a@test.com', password: 'password123' });
       console.log('❌ Brute Force Test: FAILED!');
       results.push({ name: "Brute Force Protection", status: 'FAIL', details: "Login allowed after 5 failed attempts." });
     } catch (e: any) {
@@ -116,6 +124,30 @@ async function runAudit() {
       } else {
         console.log(`❌ Brute Force Test: FAILED!`);
         results.push({ name: "Brute Force Protection", status: 'FAIL', details: `Unexpected error: ${e.message}` });
+      }
+    }
+
+    // Test loginWithPin Brute Force
+    console.log('\n[SHANNON] Testing loginWithPin Brute Force...');
+    for (let i = 0; i < 5; i++) {
+      try {
+        await (callerA.auth.loginWithPin as any)({ pin: '9999' }); // Wrong PIN
+      } catch (e: any) {
+        // console.log(`[SHANNON] PIN failure ${i+1}: ${e.message}`);
+      }
+    }
+    try {
+      await (callerA.auth.loginWithPin as any)({ pin: '1111' }); // Correct PIN but should be locked
+      console.log('❌ PIN Brute Force Test: FAILED!');
+      results.push({ name: "PIN Brute Force", status: 'FAIL', details: "PIN Login allowed after 5 failed attempts." });
+    } catch (e: any) {
+      const msg = e?.message || e?.toString() || "";
+      if (msg.includes('locked') || msg.includes('attempts')) {
+        console.log(`✅ PIN Brute Force Test: Passed.`);
+        results.push({ name: "PIN Brute Force", status: 'PASS', details: msg });
+      } else {
+        console.log(`❌ PIN Brute Force Test: FAILED! Error: ${msg}`);
+        results.push({ name: "PIN Brute Force", status: 'FAIL', details: `Unexpected error: ${msg}` });
       }
     }
   } catch (e) {

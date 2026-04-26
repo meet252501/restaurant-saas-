@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
-import { db } from "../db";
-import { bookings, deliveryOrders, customers } from "../../drizzle/schema";
+import { db, bookings, deliveryOrders, customers } from "../db";
 import { eq, and, sql } from "drizzle-orm";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -55,15 +54,14 @@ export const dailySnapshotRouter = router({
         const peakHour = Object.entries(bookingsByHour).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
         // ── Delivery orders today ────────────────────────────────────────
-        const allOrders: any[] = await db!
+        const allOrdersResult: any[] = await db!
           .select()
           .from(deliveryOrders)
-          .where(
-            and(
-              eq(deliveryOrders.restaurantId, restaurantId),
-              sql`date(${deliveryOrders.createdAt}) = ${today}`
-            )
-          );
+          .where(eq(deliveryOrders.restaurantId, restaurantId));
+
+        const allOrders = allOrdersResult.filter((o: any) => 
+          o.createdAt && o.createdAt.startsWith(today)
+        );
 
         const totalOrders      = allOrders.length;
         const deliveryRevenue  = allOrders.reduce((s: number, o: any) => s + (o.totalAmount || 0), 0);

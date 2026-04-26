@@ -15,7 +15,10 @@
     },
     "production": {
       "android": {
-        "buildType": "apk"
+        "buildType": "apk",
+        "env": {
+          "EXPO_PUBLIC_API_URL": "https://restaurant-saas-tablebook-api.onrender.com"
+        }
       }
     }
   },

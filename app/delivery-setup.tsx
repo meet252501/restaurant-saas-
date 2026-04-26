@@ -130,7 +130,7 @@ export default function DeliverySetupScreen() {
             <Ionicons name="key-outline" size={18} color={Colors.accent} />
             <Text style={s.cardTitle}>Quick ID Entry</Text>
           </View>
-          <Text style={s.cardDesc}>Paste your restaurant IDs here and they'll be saved to Settings automatically.</Text>
+          <Text style={s.cardDesc}>Paste your restaurant IDs here and they&apos;ll be saved to Settings automatically.</Text>
           <View style={s.inputRow}>
             <View style={[s.idBadge, { backgroundColor: '#dc2626' }]}><Text style={s.idBadgeText}>Z</Text></View>
             <TextInput
@@ -222,7 +222,7 @@ export default function DeliverySetupScreen() {
             <Text style={s.webhookTitle}>Webhook URL for Live Orders</Text>
           </View>
           <Text style={s.webhookDesc}>
-            Configure this in your platform's Developer Settings for instant order push notifications:
+            Configure this in your platform&apos;s Developer Settings for instant order push notifications:
           </Text>
           <View style={s.codeBox}>
             <Text style={s.codeText}>POST  /api/trpc/delivery.ingest</Text>

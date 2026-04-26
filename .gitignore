@@ -35,3 +35,8 @@ Thumbs.db
 
 # Node
 node_modules/
+
+# Antigravity Logs
+*.txt
+*.webp
+*.png

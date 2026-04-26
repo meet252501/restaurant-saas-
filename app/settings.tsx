@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, TextInput, Pressable,
-  ActivityIndicator, StyleSheet, Alert,
+  ActivityIndicator, StyleSheet, Alert, Switch, Animated, Dimensions
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,6 +10,9 @@ import { Colors, Spacing, Typography, Radius, Shadows } from '../lib/theme';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSaaSStore, ThemeColor } from '../lib/saas-store';
 import { useDynamicTheme } from '../lib/useDynamicTheme';
+import { LinearGradient } from 'expo-linear-gradient';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const THEME_OPTIONS: { id: ThemeColor; label: string; hex: string }[] = [
   { id: 'emerald', label: 'Emerald', hex: '#10b981' },
@@ -25,10 +28,12 @@ function Section({ title, icon, children }: { title: string; icon: any; children
     <View style={styles.section}>
       <Pressable style={styles.sectionHeader} onPress={() => setOpen(o => !o)}>
         <View style={styles.sectionTitleRow}>
-          <Ionicons name={icon} size={18} color={Colors.textSecondary} />
+          <View style={styles.iconCircle}>
+            <Ionicons name={icon} size={18} color="#fff" />
+          </View>
           <Text style={styles.sectionTitle}>{title}</Text>
         </View>
-        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.textTertiary} />
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={Colors.textTertiary} />
       </Pressable>
       {open && <View style={styles.sectionBody}>{children}</View>}
     </View>
@@ -43,16 +48,16 @@ function Field({ label, value, onChangeText, placeholder, icon, keyboardType, se
     <View style={styles.fieldWrap}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <View style={styles.inputWrap}>
-        {icon && <Ionicons name={icon} size={16} color={Colors.textTertiary} />}
+        {icon && <Ionicons name={icon} size={18} color="#64748b" style={{ marginRight: 10 }} />}
         <TextInput
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
-          placeholderTextColor={Colors.textTertiary}
+          placeholderTextColor="#475569"
           keyboardType={keyboardType}
           secureTextEntry={secure}
           multiline={multiline}
-          style={[styles.input, multiline && { height: 72, textAlignVertical: 'top' }]}
+          style={[styles.input, multiline && { height: 80, textAlignVertical: 'top' }]}
         />
       </View>
     </View>
@@ -63,12 +68,29 @@ export default function SettingsScreen() {
   const router = useRouter();
   const theme = useDynamicTheme();
   const { data: restaurant, isLoading } = trpc.restaurant.info.useQuery();
-  const { appName, setAppName, themeColor, setThemeColor } = useSaaSStore();
+  const { 
+    appName, setAppName, themeColor, setThemeColor, 
+    useGlassmorphism, setUseGlassmorphism,
+    masterPin, setMasterPin, user, logout
+  } = useSaaSStore();
+
+  const [tempPin, setTempPin] = useState(masterPin);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   const updateMutation = trpc.restaurant.updateInfo.useMutation({
     onSuccess: () => {
-      Alert.alert('Saved!', 'Restaurant profile updated successfully.');
+      Alert.alert('System Synchronized', 'Restaurant profile has been updated across the cloud.');
       router.back();
+    },
+    onError: (e) => Alert.alert('Error', e.message),
+  });
+
+  const setPasswordMutation = trpc.auth.setPin.useMutation({
+    onSuccess: () => {
+      Alert.alert('Security Updated', 'Your cloud access credentials have been changed.');
+      setNewPassword('');
+      setConfirmPassword('');
     },
     onError: (e) => Alert.alert('Error', e.message),
   });
@@ -153,247 +175,266 @@ export default function SettingsScreen() {
     });
   };
 
+  const handlePasswordUpdate = () => {
+    if (newPassword.length < 4) {
+      Alert.alert('Security Policy', 'Cloud key must be at least 4 characters');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      Alert.alert('Mismatch', 'Confirmation key does not match.');
+      return;
+    }
+    setPasswordMutation.mutate({ pin: newPassword });
+  };
+
   if (isLoading) {
     return (
-      <View style={{ flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center' }}>
+      <View style={{ flex: 1, backgroundColor: '#020617', justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator color={Colors.accent} size="large" />
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: Colors.background }}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={22} color={Colors.textPrimary} />
-        </Pressable>
-        <Text style={styles.headerTitle}>Restaurant Settings</Text>
-        <View style={{ width: 36 }} />
-      </View>
-
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-
-        {/* Identity */}
-        <View style={styles.identityCard}>
-          <View style={[styles.logoCircle, { backgroundColor: theme.primaryDim }]}>
-            <Ionicons name="restaurant" size={40} color={theme.primary} />
-          </View>
-          <Text style={styles.identityName}>{appName}</Text>
-          <Text style={styles.identityRole}>Owner Control Panel</Text>
+    <View style={{ flex: 1, backgroundColor: '#020617' }}>
+      <LinearGradient colors={['#020617', '#0f172a']} style={StyleSheet.absoluteFill} />
+      
+      <SafeAreaView style={{ flex: 1 }}>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+          </Pressable>
+          <Text style={styles.headerTitle}>Command Center</Text>
+          <View style={styles.statusDot} />
         </View>
 
-        {/* ── BRAND ── */}
-        <Section title="SaaS Branding" icon="color-palette-outline">
-          <Field label="App Display Name" value={appName} onChangeText={setAppName}
-            placeholder="e.g. Green Apple" icon="text-outline" />
+        <ScrollView 
+          style={{ flex: 1 }} 
+          contentContainerStyle={styles.content} 
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.identityCard}>
+            <LinearGradient colors={[theme.primary, theme.primaryDim]} style={styles.logoCircle}>
+              <Ionicons name="restaurant" size={32} color="#fff" />
+            </LinearGradient>
+            <View style={styles.identityText}>
+              <Text style={styles.identityName}>{appName}</Text>
+              <Text style={styles.identityRole}>{user?.email || 'Authorized Manager Session'}</Text>
+            </View>
+          </View>
+
+          <Section title="Enterprise Branding" icon="color-palette-outline">
+            <Field label="App Appearance Name" value={appName} onChangeText={setAppName}
+              placeholder="e.g. Blue Ginger" icon="text-outline" />
             
-          <Text style={styles.fieldLabel}>Theme Color</Text>
-          <View style={styles.colorRow}>
-            {THEME_OPTIONS.map((t) => (
-              <Pressable
-                key={t.id}
-                onPress={() => setThemeColor(t.id)}
-                style={[
-                  styles.colorCircle,
-                  { backgroundColor: t.hex },
-                  themeColor === t.id && styles.colorCircleActive
-                ]}
+            <Text style={styles.fieldLabel}>Core Theme Signature</Text>
+            <View style={styles.colorRow}>
+              {THEME_OPTIONS.map((t) => (
+                <Pressable
+                  key={t.id}
+                  onPress={() => setThemeColor(t.id)}
+                  style={[
+                    styles.colorCircle,
+                    { backgroundColor: t.hex },
+                    themeColor === t.id && styles.colorCircleActive
+                  ]}
+                >
+                  {themeColor === t.id && <Ionicons name="checkmark" size={16} color="#fff" />}
+                </Pressable>
+              ))}
+            </View>
+
+            <View style={styles.switchRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.switchLabel}>Glassmorphism FX</Text>
+                <Text style={styles.hint}>Ultra-modern translucent UI effects</Text>
+              </View>
+              <Switch
+                value={useGlassmorphism}
+                onValueChange={setUseGlassmorphism}
+                trackColor={{ false: '#1e293b', true: theme.primary }}
+                thumbColor="#fff"
               />
-            ))}
-          </View>
-        </Section>
+            </View>
+          </Section>
 
-        {/* ── AI SETTINGS ── */}
-        <Section title="AI Engine & Capabilities" icon="hardware-chip-outline">
-          <Pressable 
-            style={[styles.saveBtn, { backgroundColor: theme.primaryDim, borderColor: theme.primary, borderWidth: 1 }]}
-            onPress={() => router.push('/ai-settings')}
+          <Section title="Authentication Infrastructure" icon="shield-checkmark-outline">
+            <View style={styles.infoBox}>
+              <Ionicons name="information-circle-outline" size={16} color={theme.primary} />
+              <Text style={styles.infoText}>You have two layers of security. The Quick PIN is for local tablet unlocking. The Cloud Password is for server access.</Text>
+            </View>
+
+            <View style={styles.securitySection}>
+              <Text style={styles.fieldLabel}>1. Local Quick Unlock (Staff PIN)</Text>
+              <View style={styles.pinInputRow}>
+                <TextInput
+                  style={[styles.input, { flex: 1, backgroundColor: 'rgba(255,255,255,0.03)' }]}
+                  value={tempPin}
+                  onChangeText={(val) => {
+                    if (val.length <= 4 && /^\d*$/.test(val)) setTempPin(val);
+                  }}
+                  placeholder="4-digit PIN"
+                  placeholderTextColor="#475569"
+                  keyboardType="number-pad"
+                  secureTextEntry
+                />
+                <Pressable 
+                  style={[styles.miniActionBtn, { backgroundColor: theme.primary }]}
+                  onPress={() => {
+                    if (tempPin.length === 4) {
+                      setMasterPin(tempPin);
+                      Alert.alert('PIN Updated', 'Staff can now use this PIN to unlock.');
+                    } else {
+                      Alert.alert('Error', 'PIN must be exactly 4 digits');
+                    }
+                  }}
+                >
+                  <Text style={styles.miniActionText}>Sync PIN</Text>
+                </Pressable>
+              </View>
+            </View>
+
+            <View style={styles.divider} />
+
+            <View style={styles.securitySection}>
+              <Text style={styles.fieldLabel}>2. Master Cloud Access (Manager)</Text>
+              <TextInput
+                style={[styles.input, { marginBottom: 12, backgroundColor: 'rgba(255,255,255,0.03)' }]}
+                value={newPassword}
+                onChangeText={setNewPassword}
+                placeholder="New Cloud Password / PIN"
+                placeholderTextColor="#475569"
+                secureTextEntry
+              />
+              <TextInput
+                style={[styles.input, { backgroundColor: 'rgba(255,255,255,0.03)' }]}
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                placeholder="Confirm Cloud Password"
+                placeholderTextColor="#475569"
+                secureTextEntry
+              />
+              <Pressable 
+                style={[styles.primaryActionBtn, { backgroundColor: theme.primary, marginTop: 16 }]}
+                onPress={handlePasswordUpdate}
+              >
+                <Text style={styles.primaryActionText}>Authorize Cloud Security Change</Text>
+              </Pressable>
+            </View>
+          </Section>
+
+          <Section title="AI & Integrations" icon="hardware-chip-outline">
+            <Field label="Twilio SID" value={form.twilioSid} onChangeText={set('twilioSid')}
+              placeholder="ACXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" icon="key-outline" />
+            <Field label="Twilio Token" value={form.twilioToken} onChangeText={set('twilioToken')}
+              placeholder="Encrypted Token" secure icon="lock-closed-outline" />
+            <Field label="Provisioned Phone" value={form.twilioPhone} onChangeText={set('twilioPhone')}
+              placeholder="+1234567890" icon="call-outline" keyboardType="phone-pad" />
+            <Text style={styles.aiHint}>💡 Our AI agents use these keys to place automatic calls for your bookings.</Text>
+          </Section>
+
+          <Pressable
+            style={({ pressed }) => [
+              styles.mainSaveBtn, 
+              { backgroundColor: theme.primary },
+              pressed && { opacity: 0.8 },
+              updateMutation.isPending && { opacity: 0.6 }
+            ]}
+            onPress={handleSave}
+            disabled={updateMutation.isPending}
           >
-            <Ionicons name="settings-outline" size={20} color={theme.primary} />
-            <Text style={[styles.saveBtnText, { color: theme.primary }]}>Manage Local AI Models</Text>
+            {updateMutation.isPending
+              ? <ActivityIndicator color="#fff" />
+              : <><Ionicons name="cloud-upload-outline" size={20} color="#fff" /><Text style={styles.mainSaveText}>Push Updates to Cloud</Text></>
+            }
           </Pressable>
-          <Text style={[styles.hint, { marginTop: Spacing.sm }]}>Download new models or switch offline AI engines.</Text>
-        </Section>
 
-        {/* ── RESTAURANT INFO ── */}
-        <Section title="Restaurant Info" icon="business-outline">
-          <Field label="Restaurant Name *" value={form.name} onChangeText={set('name')}
-            placeholder="e.g. Green Apple Restaurant" icon="restaurant-outline" />
-          <Field label="Contact Phone / WhatsApp" value={form.phone} onChangeText={set('phone')}
-            placeholder="+91 96626 53440" icon="call-outline" keyboardType="phone-pad" />
-          <Field label="Owner Email" value={form.email} onChangeText={set('email')}
-            placeholder="owner@greenapple.com" icon="mail-outline" keyboardType="email-address" />
-          <Field label="Full Address (Street, Area)" value={form.address} onChangeText={set('address')}
-            placeholder="Sector 16, Near Akshardham..." icon="location-outline" multiline />
-          <View style={styles.row}>
-            <View style={{ flex: 1 }}>
-              <Field label="City" value={form.city} onChangeText={set('city')}
-                placeholder="Gandhinagar" icon="map-outline" />
-            </View>
-            <View style={{ width: Spacing.sm }} />
-            <View style={{ flex: 0.6 }}>
-              <Field label="Pincode" value={form.pincode} onChangeText={set('pincode')}
-                placeholder="382016" keyboardType="number-pad" />
-            </View>
-          </View>
-          <Field label="Cuisine Type(s)" value={form.cuisineType} onChangeText={set('cuisineType')}
-            placeholder="Indian, Gujarati, Chinese" icon="nutrition-outline" />
-          <Field label="GST Number" value={form.gstNumber} onChangeText={set('gstNumber')}
-            placeholder="24AABCU9603R1ZS" icon="receipt-outline" />
-        </Section>
+          <Pressable
+            style={({ pressed }) => [
+              styles.logoutBtn,
+              pressed && { backgroundColor: 'rgba(239, 68, 68, 0.2)' }
+            ]}
+            onPress={() => {
+              Alert.alert(
+                'End Session',
+                'Are you sure you want to log out from this instance?',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Logout', style: 'destructive', onPress: async () => {
+                    await logout();
+                    router.replace('/login');
+                  }},
+                ]
+              );
+            }}
+          >
+            <Ionicons name="log-out-outline" size={20} color="#f87171" />
+            <Text style={styles.logoutText}>Terminate Authorized Session</Text>
+          </Pressable>
 
-        {/* ── OPENING HOURS ── */}
-        <Section title="Opening Hours" icon="time-outline">
-          <Field label="Lunch Hours" value={form.openingHoursLunch} onChangeText={set('openingHoursLunch')}
-            placeholder="11:00 – 15:00" icon="sunny-outline" />
-          <Field label="Dinner Hours" value={form.openingHoursDinner} onChangeText={set('openingHoursDinner')}
-            placeholder="18:30 – 23:00" icon="moon-outline" />
-        </Section>
-
-        {/* ── SOCIAL & ONLINE ── */}
-        <Section title="Social & Online Presence" icon="globe-outline">
-          <Field label="Instagram URL" value={form.instagramUrl} onChangeText={set('instagramUrl')}
-            placeholder="https://instagram.com/greenapple" icon="logo-instagram" />
-          <Field label="Google Maps Link" value={form.googleMapsUrl} onChangeText={set('googleMapsUrl')}
-            placeholder="https://maps.google.com/..." icon="map-outline" />
-        </Section>
-
-        {/* ── SECURITY ── */}
-        <Section title="Security" icon="shield-outline">
-          <Field label="Staff Security PIN (4 digits)" value={form.pinCode} onChangeText={set('pinCode')}
-            placeholder="1234" icon="keypad-outline" keyboardType="number-pad" secure />
-          <Text style={styles.hint}>Required to access Analytics, Menu, KDS & Settings.</Text>
-        </Section>
-
-        {/* ── INTEGRATIONS ── */}
-        <Section title="AI Voice (Twilio)" icon="call-outline">
-          <Field label="Account SID" value={form.twilioSid} onChangeText={set('twilioSid')}
-            placeholder="ACXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" icon="key-outline" />
-          <Field label="Auth Token" value={form.twilioToken} onChangeText={set('twilioToken')}
-            placeholder="Your Twilio Auth Token" secure />
-          <Field label="Twilio Phone" value={form.twilioPhone} onChangeText={set('twilioPhone')}
-            placeholder="+1234567890" icon="call-outline" keyboardType="phone-pad" />
-          <Text style={styles.hint}>💡 Your restaurant pays Twilio directly. You get amazing AI calling for free!</Text>
-        </Section>
-
-
-
-        {/* Save */}
-        <Pressable
-          style={[styles.saveBtn, Shadows.accent, { backgroundColor: theme.primary }, updateMutation.isPending && { opacity: 0.7 }]}
-          onPress={handleSave}
-          disabled={updateMutation.isPending}
-        >
-          {updateMutation.isPending
-            ? <ActivityIndicator color="#000" />
-            : <><Ionicons name="checkmark-circle" size={20} color="#000" /><Text style={[styles.saveBtnText, { color: '#000' }]}>Save All Changes</Text></>
-          }
-        </Pressable>
-
-        {/* RESTART SETUP BUTTON */}
-        <Pressable
-          style={[styles.saveBtn, { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.surfaceBorder, marginTop: Spacing.xl }]}
-          onPress={() => {
-            setAppName('');
-            router.replace('/login');
-          }}
-        >
-          <Ionicons name="refresh" size={20} color={Colors.textSecondary} />
-          <Text style={[styles.saveBtnText, { color: Colors.textSecondary }]}>Restart Initial Setup</Text>
-        </Pressable>
-
-        {/* LOGOUT BUTTON */}
-        <Pressable
-          style={[styles.saveBtn, { backgroundColor: Colors.error + '20', borderWidth: 1, borderColor: Colors.error + '40', marginTop: Spacing.sm }]}
-          onPress={() => {
-            Alert.alert(
-              'Logout',
-              'Are you sure you want to logout?',
-              [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Logout', style: 'destructive', onPress: () => router.replace('/login') },
-              ]
-            );
-          }}
-        >
-          <Ionicons name="log-out-outline" size={20} color={Colors.error} />
-          <Text style={[styles.saveBtnText, { color: Colors.error }]}>Logout</Text>
-        </Pressable>
-
-        <View style={{ height: 60 }} />
-      </ScrollView>
-    </SafeAreaView>
+          <View style={{ height: 100 }} />
+        </ScrollView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    padding: Spacing.lg, borderBottomWidth: 1, borderBottomColor: Colors.surfaceBorder,
-    backgroundColor: Colors.background,
+    padding: 20, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)',
   },
-  backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { ...Typography.subheading, color: Colors.textPrimary, fontWeight: '800' },
-  content: { padding: Spacing.lg, gap: Spacing.md },
+  backBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.03)', alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { fontSize: 20, fontWeight: '900', color: '#fff', letterSpacing: -0.5 },
+  statusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#10b981', ...Shadows.neon },
+  content: { padding: 20, gap: 24 },
+  
   identityCard: {
-    backgroundColor: Colors.surface, borderRadius: Radius.lg, padding: Spacing.xl,
-    alignItems: 'center', gap: Spacing.sm, borderWidth: 1, borderColor: Colors.surfaceBorder,
+    flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(30, 41, 59, 0.4)', borderRadius: 24, padding: 20,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)', gap: 16
   },
-  logoCircle: {
-    width: 72, height: 72, borderRadius: 36, backgroundColor: Colors.accentDim,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  identityName: { ...Typography.heading, color: Colors.textPrimary, fontWeight: '900' },
-  identityRole: { ...Typography.bodySmall, color: Colors.textTertiary },
-  section: {
-    backgroundColor: Colors.surface, borderRadius: Radius.lg, overflow: 'hidden',
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-  },
-  sectionHeader: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    padding: Spacing.lg, borderBottomWidth: 1, borderBottomColor: Colors.surfaceBorder,
-  },
-  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  sectionTitle: { ...Typography.subheading, color: Colors.textPrimary, fontWeight: '700' },
-  sectionBody: { padding: Spacing.lg, gap: Spacing.md },
-  fieldWrap: { gap: Spacing.xs },
-  fieldLabel: { ...Typography.caption, color: Colors.textSecondary, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
-  inputWrap: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-    backgroundColor: Colors.surfaceElevated, borderRadius: Radius.md, padding: Spacing.md,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-  },
-  input: { flex: 1, ...Typography.body, color: Colors.textPrimary },
-  row: { flexDirection: 'row', alignItems: 'flex-start' },
-  colorRow: { flexDirection: 'row', gap: Spacing.sm, alignItems: 'center', flexWrap: 'wrap' },
-  colorCircle: {
-    width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2, borderColor: 'transparent',
-  },
-  colorCircleActive: { borderColor: '#fff', borderWidth: 3 },
-  colorLabel: { ...Typography.caption, fontWeight: '600' },
-  hint: { ...Typography.caption, color: Colors.textTertiary, fontStyle: 'italic', lineHeight: 18 },
-  saveBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm,
-    backgroundColor: Colors.accent, borderRadius: Radius.lg, padding: Spacing.lg,
-    marginTop: Spacing.sm,
-  },
-  saveBtnText: { ...Typography.subheading, color: Colors.textInverse, fontWeight: '700' },
-  guideBox: {
-    backgroundColor: Colors.surfaceElevated, borderRadius: Radius.md,
-    padding: Spacing.md, gap: 12, borderWidth: 1, borderColor: Colors.surfaceBorder,
-    marginBottom: Spacing.sm,
-  },
-  guideTitle: { ...Typography.caption, color: Colors.textSecondary, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 },
-  guideStep: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  guideNum: {
-    width: 24, height: 24, borderRadius: 12, backgroundColor: Colors.accent,
-    alignItems: 'center', justifyContent: 'center', marginTop: 2,
-  },
-  guideNumTxt: { color: '#000', fontWeight: '800', fontSize: 12 },
-  guideStepTitle: { ...Typography.bodySmall, color: Colors.textPrimary, fontWeight: '700' },
-  guideStepText: { ...Typography.caption, color: Colors.textSecondary, lineHeight: 18, marginTop: 2 },
-  guideLink: { color: Colors.accent, textDecorationLine: 'underline' },
-  guideCode: { color: Colors.accentPurple || Colors.accent, fontWeight: '700' },
+  logoCircle: { width: 64, height: 64, borderRadius: 22, alignItems: 'center', justifyContent: 'center', ...Shadows.soft },
+  identityText: { flex: 1 },
+  identityName: { fontSize: 22, fontWeight: '900', color: '#fff', letterSpacing: -0.5 },
+  identityRole: { fontSize: 13, color: '#64748b', marginTop: 2, fontWeight: '500' },
+
+  section: { backgroundColor: 'rgba(30, 41, 59, 0.25)', borderRadius: 24, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.03)' },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, backgroundColor: 'rgba(255,255,255,0.02)' },
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  iconCircle: { width: 34, height: 34, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.05)', alignItems: 'center', justifyContent: 'center' },
+  sectionTitle: { fontSize: 16, color: '#fff', fontWeight: '800', letterSpacing: -0.3 },
+  sectionBody: { padding: 20, gap: 20 },
+
+  fieldWrap: { gap: 8 },
+  fieldLabel: { fontSize: 11, color: '#64748b', fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1.2, marginLeft: 4 },
+  inputWrap: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.8)', borderRadius: 16, paddingHorizontal: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+  input: { flex: 1, height: 56, color: '#fff', fontSize: 15, fontWeight: '500' },
+  
+  colorRow: { flexDirection: 'row', gap: 12, alignItems: 'center', marginTop: 4 },
+  colorCircle: { width: 44, height: 44, borderRadius: 18, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: 'transparent' },
+  colorCircleActive: { borderColor: 'rgba(255,255,255,0.2)' },
+
+  switchRow: { flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 10, padding: 16, backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 16 },
+  switchLabel: { fontSize: 15, color: '#fff', fontWeight: '700' },
+  hint: { fontSize: 12, color: '#64748b', marginTop: 2 },
+  
+  infoBox: { flexDirection: 'row', gap: 10, backgroundColor: 'rgba(56, 189, 248, 0.05)', padding: 14, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(56, 189, 248, 0.1)' },
+  infoText: { flex: 1, fontSize: 12, color: '#94a3b8', lineHeight: 18 },
+
+  securitySection: { gap: 12 },
+  pinInputRow: { flexDirection: 'row', gap: 12 },
+  miniActionBtn: { paddingHorizontal: 16, borderRadius: 14, justifyContent: 'center' },
+  miniActionText: { color: '#fff', fontWeight: '800', fontSize: 12 },
+  
+  primaryActionBtn: { height: 54, borderRadius: 16, alignItems: 'center', justifyContent: 'center', ...Shadows.neon },
+  primaryActionText: { color: '#fff', fontSize: 14, fontWeight: '900', letterSpacing: 0.5 },
+
+  aiHint: { fontSize: 11, color: '#475569', fontStyle: 'italic', textAlign: 'center', marginTop: -10 },
+  
+  mainSaveBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, height: 64, borderRadius: 20, ...Shadows.neon },
+  mainSaveText: { color: '#fff', fontSize: 17, fontWeight: '900' },
+  
+  logoutBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: 'rgba(239, 68, 68, 0.05)', padding: 20, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(239, 68, 68, 0.1)', marginTop: 10 },
+  logoutText: { color: '#f87171', fontSize: 14, fontWeight: '800' },
+  divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.05)', marginVertical: 10 },
 });

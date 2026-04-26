@@ -1,880 +1,629 @@
-import React, { useState, useRef, useEffect } from 'react';
-import {
-  View, Text, StyleSheet, KeyboardAvoidingView, Platform, Animated, Pressable, SafeAreaView, Dimensions, TextInput, Linking, useWindowDimensions
+import React, { useState, useEffect } from 'react';
+import { 
+  View, Text, StyleSheet, TextInput, Pressable, 
+  ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform, Alert, Modal, Dimensions, Animated
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { BlurView } from 'expo-blur';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, Typography, Radius, Shadows } from '../lib/theme';
-import { Ionicons, FontAwesome } from '@expo/vector-icons';
-import { trpc } from '../lib/trpc';
-import { useSaaSStore, ThemeColor } from '../lib/saas-store';
-import { HttpUrl, setBaseUrl } from '../lib/trpc';
+import { Colors, Spacing, Shadows } from '../lib/theme';
+import { useSaaSStore } from '../lib/saas-store';
+import { useRouter } from 'expo-router';
+import { getHttpUrl, setBaseUrl, trpc } from '../lib/trpc';
+import * as Google from 'expo-auth-session/providers/google';
+import * as WebBrowser from 'expo-web-browser';
+import * as Crypto from 'expo-crypto';
 
+WebBrowser.maybeCompleteAuthSession();
 
-
-
-
-type Mode = 'loading' | 'login' | 'setup_restaurant' | 'setup_info' | 'setup_pin' | 'confirm_pin' | 'connection_error';
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function LoginScreen() {
-  const router = useRouter();
-  const [mode, setMode] = useState<Mode>('loading');
+  const [loginMode, setLoginMode] = useState<'email' | 'pin' | 'register'>('email');
   const [pin, setPin] = useState('');
-  const [setupPin, setSetupPin] = useState(''); // stores first entry during setup
-  
-  // Setup info state
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [name] = useState('');
+  const [restaurantName, setRestaurantName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   
-  const [errorMsg, setErrorMsg] = useState('');
-  const [isAuthenticating, setIsAuthenticating] = useState(false);
-  const [showServerSettings, setShowServerSettings] = useState(false);
-  const [customServerUrl, setCustomServerUrl] = useState(HttpUrl.replace('/api/trpc', ''));
-  const appName = useSaaSStore(s => s.appName);
-  const setAppNameStore = useSaaSStore(s => s.setAppName);
-  const setThemeColorStore = useSaaSStore(s => s.setThemeColor);
-  const trpcUtils = trpc.useUtils();
-  
-  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
-  const isSmallScreen = windowWidth < 360;
+  // Settings State
+  const { 
+    appName, setAppName, 
+    themeColor, setThemeColor,
+    masterPin, setMasterPin,
+    baseUrl, setBaseUrl,
+    resetAll 
+  } = useSaaSStore();
 
-  // New setup state
-  const [newAppName, setNewAppName] = useState(appName || '');
-  const [selectedTheme, setSelectedTheme] = useState<ThemeColor>('violet');
-  
-  const themeHexMap: Record<ThemeColor, string> = {
-    emerald: '#10b981',
-    blue: '#3b82f6',
-    rose: '#f43f5e',
-    amber: '#f59e0b',
-    violet: '#8b5cf6',
-  };
+  const [tempUrl, setTempUrl] = useState(baseUrl);
+  const [tempAppName, setTempAppName] = useState(appName);
+  const [tempMasterPin, setTempMasterPin] = useState(masterPin);
+  const [tempThemeColor, setTempThemeColor] = useState(themeColor);
+  const [settingsModalVisible, setSettingsModalVisible] = useState(false);
 
-  // Check if users exist on mount
-  const hasUsersQuery = trpc.auth.hasUsers.useQuery(undefined, {
-    retry: 2,
+
+  // --- Google Auth ---
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
+    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+    webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
   });
 
-  // Fetch restaurant info to sync store if needed
-  const restaurantInfoQuery = trpc.restaurant.info.useQuery(undefined, {
-    enabled: hasUsersQuery.isSuccess && hasUsersQuery.data?.exists,
-  });
-
-  useEffect(() => {
-    if (hasUsersQuery.isSuccess && hasUsersQuery.data) {
-      if (!hasUsersQuery.data.exists) {
-        // No users - start onboarding
-        if (!appName) {
-          setMode('setup_restaurant');
-        } else {
-          setMode('setup_info');
-        }
-      } else {
-        // Users exist
-        if (restaurantInfoQuery.isSuccess && restaurantInfoQuery.data) {
-          // Sync store with backend if it's empty locally
-          if (!appName) {
-            setAppNameStore(restaurantInfoQuery.data.name);
-          }
-          setMode('login');
-        } else if (restaurantInfoQuery.isError) {
-          // No restaurant record but users exist (unlikely but safe to handle)
-          setMode('login');
-        }
-        // If still loading restaurant info, stay in 'loading' or previous mode
-      }
-    } else if (hasUsersQuery.isError) {
-      setMode('connection_error');
+  const googleAuthMutation = trpc.auth.googleLogin.useMutation({
+    onSuccess: (data) => {
+      setSession(data.token, data.user as any);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.replace('/(tabs)');
+    },
+    onError: (error) => {
+      setLoading(false);
+      Alert.alert('Google Auth Failed', error.message);
     }
-  }, [hasUsersQuery.isSuccess, hasUsersQuery.isError, hasUsersQuery.data, appName, restaurantInfoQuery.isSuccess, restaurantInfoQuery.isError, restaurantInfoQuery.data]);
-
-  // Animation values
-  const shakeAnimation = useRef(new Animated.Value(0)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current;
+  });
 
   useEffect(() => {
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 800,
-      useNativeDriver: true,
-    }).start();
-  }, [mode]);
+    if (response?.type === 'success' && response.authentication) {
+      const { idToken } = response.authentication;
+      if (idToken) {
+        setLoading(true);
+        googleAuthMutation.mutate({ idToken });
+      }
+    } else if (response?.type === 'error') {
+      Alert.alert('Auth Error', 'Could not complete Google Sign-In.');
+    }
+  }, [response, googleAuthMutation]);
 
-  const triggerShake = () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    shakeAnimation.setValue(0);
-    Animated.sequence([
-      Animated.timing(shakeAnimation, { toValue: 10, duration: 50, useNativeDriver: true }),
-      Animated.timing(shakeAnimation, { toValue: -10, duration: 50, useNativeDriver: true }),
-      Animated.timing(shakeAnimation, { toValue: 10, duration: 50, useNativeDriver: true }),
-      Animated.timing(shakeAnimation, { toValue: 0, duration: 50, useNativeDriver: true })
-    ]).start();
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    try {
+      const result = await promptAsync();
+      if (result.type !== 'success') {
+        setLoading(false);
+      }
+    } catch (e) {
+      setLoading(false);
+      Alert.alert('Auth Error', 'Security handshake failed.');
+    }
   };
 
-  // ── Mutations ──────────────────────────────────────
+  // Animation for background glow
+  const fadeAnim = React.useRef(new Animated.Value(0.4)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(fadeAnim, { toValue: 0.8, duration: 4000, useNativeDriver: true }),
+        Animated.timing(fadeAnim, { toValue: 0.4, duration: 4000, useNativeDriver: true }),
+      ])
+    ).start();
+  }, []);
+
+  // Check if system has any users. If not, default to registration.
+  const hasUsersQuery = trpc.auth.hasUsers.useQuery(undefined, {
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (hasUsersQuery.data && !hasUsersQuery.data.exists) {
+      setLoginMode('register');
+    }
+  }, [hasUsersQuery.data]);
+
+  const registerMutation = trpc.auth.register.useMutation({
+    onSuccess: (data) => {
+      setSession(data.token, { 
+        id: 'owner', 
+        name: name || 'Manager', 
+        email: email, 
+        restaurantId: data.restaurantId 
+      } as any);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Success!', 'Your professional restaurant dashboard is ready.');
+      router.replace('/(tabs)');
+    },
+    onError: (error) => {
+      setLoading(false);
+      Alert.alert('Registration Error', error.message);
+    }
+  });
+
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: (data) => {
-      if (data.success && data.token && data.user) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        trpcUtils.auth.me.setData(undefined, data.user as any);
-        router.replace('/(tabs)');
-      }
+      setSession(data.token, data.user as any);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.replace('/(tabs)');
     },
-    onError: (err) => {
-      setPin('');
-      setIsAuthenticating(false);
-      setErrorMsg(err.message || 'Invalid PIN. Try again.');
-      triggerShake();
-    },
+    onError: (error) => {
+      setLoading(false);
+      Alert.alert('Login Failed', error.message);
+    }
   });
 
-  const setPinMutation = trpc.auth.setPin.useMutation({
+  const pinLoginMutation = trpc.auth.loginWithPin.useMutation({
     onSuccess: (data) => {
-      if (data.success && data.token && data.user) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        trpcUtils.auth.me.setData(undefined, data.user as any);
-        router.replace('/(tabs)');
-      }
+      setSession(data.token, data.user as any);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.replace('/(tabs)');
     },
-    onError: (err) => {
+    onError: (error) => {
+      setLoading(false);
       setPin('');
-      setSetupPin('');
-      setMode('setup_pin');
-      setIsAuthenticating(false);
-      setErrorMsg(err.message || 'Failed to set PIN. Try again.');
-      triggerShake();
-    },
+      Alert.alert('PIN Access Denied', error.message);
+    }
   });
 
-  // ── Actions ────────────────────────────────────────
-  const handleSupportWhatsApp = () => {
-    // You can also fetch this dynamically from DB in the future.
-    const managerPhone = "919876543210"; 
-    const message = encodeURIComponent("Hi TableBook Support, I need help with...");
-    Linking.openURL(`whatsapp://send?phone=${managerPhone}&text=${message}`).catch(() => {
-      setErrorMsg("WhatsApp is not installed on this device.");
-    });
-  };
-
-  const handleRestaurantSubmit = () => {
-    if (!newAppName.trim()) {
-      setErrorMsg("Please enter your restaurant name.");
-      triggerShake();
-      return;
-    }
-    setAppNameStore(newAppName);
-    setThemeColorStore(selectedTheme);
-    setErrorMsg('');
-    setMode('setup_info');
-    fadeAnim.setValue(0);
-  };
-
-  const handleInfoSubmit = () => {
-    if (!phone || phone.length < 10) {
-      setErrorMsg("Please enter a valid phone number.");
-      triggerShake();
-      return;
-    }
-    setErrorMsg('');
-    setMode('setup_pin');
-    fadeAnim.setValue(0);
-  };
-
-  // ── Handle Dial ────────────────────────────────────
   const handleDial = (num: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setErrorMsg('');
-    if (isAuthenticating) return;
-
-    const newPin = pin + num;
-    if (newPin.length <= 4) setPin(newPin);
-    
-    if (newPin.length === 4) {
-      if (mode === 'login') {
-        // Normal login
-        setIsAuthenticating(true);
-        loginMutation.mutate({ pin: newPin });
-      } else if (mode === 'setup_pin') {
-        // First PIN entry — store and ask to confirm
-        setSetupPin(newPin);
-        setPin('');
-        setMode('confirm_pin');
-      } else if (mode === 'confirm_pin') {
-        // Confirm PIN entry
-        if (newPin === setupPin) {
-          setIsAuthenticating(true);
-          setPinMutation.mutate({ pin: newPin, email, phone, restaurantName: newAppName });
-        } else {
-          setPin('');
-          setSetupPin('');
-          setMode('setup_pin');
-          setErrorMsg('PINs did not match. Try again.');
-          triggerShake();
-        }
+    if (pin.length < 4) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      const newPin = pin + num;
+      setPin(newPin);
+      
+      if (newPin.length === 4) {
+        setLoading(true);
+        pinLoginMutation.mutate({ pin: newPin });
       }
     }
   };
 
-  const handleDelete = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (isAuthenticating) return;
-    setPin(pin.slice(0, -1));
-    setErrorMsg('');
-  };
-
-  // ── Dynamic labels ─────────────────────────────────
-  const getSubtitle = () => {
-    switch (mode) {
-      case 'loading': return 'Loading...';
-      case 'login': return 'Enter Your PIN';
-      case 'setup_restaurant': return 'Create Your App';
-      case 'setup_info': return 'Manager Details';
-      case 'setup_pin': return 'Set Your PIN';
-      case 'confirm_pin': return 'Confirm Your PIN';
-      case 'connection_error': return 'Network Error';
+  const handleBackspace = () => {
+    if (pin.length > 0) {
+      setPin(pin.slice(0, -1));
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
   };
 
-  const getHelpText = () => {
-    switch (mode) {
-      case 'setup_restaurant': return 'Give your restaurant app a unique name and style';
-      case 'setup_info': return 'Provide contact details for the manager account';
-      case 'setup_pin': return 'Choose a 4-digit PIN for quick access';
-      case 'confirm_pin': return 'Enter the same PIN again to confirm';
-      case 'connection_error': return 'Failed to connect to TableBook cloud';
-      default: return '';
+  const handleAuthAction = () => {
+    setLoading(true);
+    if (loginMode === 'email') {
+      if (!email || !password) {
+        Alert.alert('Required', 'Please enter your credentials');
+        setLoading(false);
+        return;
+      }
+      loginMutation.mutate({ email, password });
+    } else if (loginMode === 'register') {
+      if (!email || !password || !restaurantName) {
+        Alert.alert('Required', 'Please fill in all restaurant details');
+        setLoading(false);
+        return;
+      }
+      registerMutation.mutate({ email, password, name: name || 'Manager', restaurantName });
     }
+  };
+
+  const handleSaveSettings = () => {
+    let url = tempUrl.trim();
+    if (!url.startsWith('http')) url = 'https://' + url;
+    if (!url.endsWith('/api/trpc')) {
+      url = url.replace(/\/$/, '') + '/api/trpc';
+    }
+    setBaseUrl(url);
+    setAppName(tempAppName);
+    setMasterPin(tempMasterPin);
+    setThemeColor(tempThemeColor as any);
+    setSettingsModalVisible(false);
+    Alert.alert('System Synchronized', 'Your infrastructure preferences have been updated.');
+  };
+
+  const handleEmergencyReset = () => {
+    Alert.alert(
+      'System Wipe',
+      'This will clear all local encrypted data and session. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Wipe & Reset', 
+          style: 'destructive',
+          onPress: () => {
+            resetAll();
+            router.replace('/login');
+          }
+        }
+      ]
+    );
   };
 
   return (
-    <LinearGradient
-      colors={['#0f172a', '#020617']}
-      style={styles.container}
-    >
-      <SafeAreaView style={styles.safe}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.content}
+    <View style={styles.root}>
+      {/* Premium Native Background */}
+      <LinearGradient
+        colors={['#020617', '#0f172a', '#020617']}
+        style={StyleSheet.absoluteFill}
+      />
+      
+      {/* Native Solid Background */}
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: Colors.background }]} />
+
+      <SafeAreaView style={styles.container}>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+          style={{ flex: 1 }}
         >
-          {/* Header */}
-          <Animated.View style={[styles.headerContainer, { opacity: fadeAnim, marginBottom: isSmallScreen ? 20 : 32 }]}>
-            <View style={[styles.logoCircle, { 
-              width: isSmallScreen ? 60 : 80, 
-              height: isSmallScreen ? 60 : 80,
-              borderRadius: isSmallScreen ? 30 : 40 
-            }]}>
-              <LinearGradient
-                colors={mode.includes('setup') || mode === 'confirm_pin' ? [themeHexMap[selectedTheme], themeHexMap[selectedTheme] + 'CC'] : ['#10b981', '#059669']}
-                style={[styles.logoGradient, {
-                  width: isSmallScreen ? 46 : 60,
-                  height: isSmallScreen ? 46 : 60,
-                  borderRadius: isSmallScreen ? 23 : 30
-                }]}
-              >
-                <Ionicons
-                  name={mode === 'setup_restaurant' ? 'brush' : (mode.includes('setup') || mode === 'confirm_pin' ? 'key' : 'restaurant')}
-                  size={isSmallScreen ? 24 : 32}
-                  color="#ffffff"
-                />
-              </LinearGradient>
-            </View>
-            <Text style={[styles.brand, { fontSize: isSmallScreen ? 24 : 32 }]}>
-              {mode === 'setup_restaurant' ? 'TableBook' : (appName || 'TableBook')}
-            </Text>
-            <Text style={[styles.subtitle, { fontSize: isSmallScreen ? 13 : 15 }]}>{getSubtitle()}</Text>
-            {getHelpText() ? (
-              <Text style={[styles.helpText, { fontSize: isSmallScreen ? 12 : 13 }]}>{getHelpText()}</Text>
-            ) : null}
-          </Animated.View>
-
-          {/* Setup Restaurant Mode */}
-          {mode === 'setup_restaurant' && (
-            <Animated.View style={[styles.infoForm, { opacity: fadeAnim }]}>
-              <View style={styles.inputGroup}>
-                <Ionicons name="restaurant-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Restaurant Name (e.g. Olive Cafe)"
-                  placeholderTextColor="#64748b"
-                  value={newAppName}
-                  onChangeText={setNewAppName}
-                />
-              </View>
-
-              <View style={styles.colorPickerContainer}>
-                <Text style={styles.label}>Choose Brand Theme</Text>
-                <View style={styles.colorRow}>
-                  {(Object.keys(themeHexMap) as ThemeColor[]).map(t => (
-                    <Pressable
-                      key={t}
-                      onPress={() => setSelectedTheme(t)}
-                      style={[
-                        styles.colorCircle,
-                        { backgroundColor: themeHexMap[t] },
-                        selectedTheme === t && styles.colorCircleActive
-                      ]}
-                    />
-                  ))}
-                </View>
-              </View>
-              
-              <Pressable style={styles.continueBtn} onPress={handleRestaurantSubmit}>
-                <LinearGradient colors={[themeHexMap[selectedTheme], themeHexMap[selectedTheme] + 'CC']} style={styles.continueBtnGradient}>
-                  <Text style={styles.continueBtnText}>Next Step</Text>
-                  <Ionicons name="arrow-forward" size={18} color="#fff" />
-                </LinearGradient>
-              </Pressable>
-            </Animated.View>
-          )}
-          {/* Setup Info Mode */}
-          {mode === 'setup_info' && (
-            <Animated.View style={[styles.infoForm, { opacity: fadeAnim }]}>
-              <View style={styles.inputGroup}>
-                <Ionicons name="call-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Phone Number (Required)"
-                  placeholderTextColor="#64748b"
-                  keyboardType="phone-pad"
-                  value={phone}
-                  onChangeText={setPhone}
-                  maxLength={15}
-                />
-              </View>
-              <View style={styles.inputGroup}>
-                <Ionicons name="mail-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Email Address (Optional)"
-                  placeholderTextColor="#64748b"
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  value={email}
-                  onChangeText={setEmail}
-                />
-              </View>
-              
-              <Pressable style={styles.continueBtn} onPress={handleInfoSubmit}>
-                <LinearGradient colors={[themeHexMap[selectedTheme], themeHexMap[selectedTheme] + 'CC']} style={styles.continueBtnGradient}>
-                  <Text style={styles.continueBtnText}>Continue to PIN</Text>
-                  <Ionicons name="arrow-forward" size={18} color="#fff" />
-                </LinearGradient>
-              </Pressable>
-            </Animated.View>
-          )}
-
-          {/* PIN Input Modes */}
-          {['login', 'setup_pin', 'confirm_pin'].includes(mode) && (
-            <Animated.View style={{ transform: [{ translateX: shakeAnimation }] }}>
-              <View style={[styles.pinDisplay, { gap: isSmallScreen ? 12 : 24 }]}>
-                {[0, 1, 2, 3].map((i) => {
-                  const isActive = pin.length > i;
-                  const dotColor = mode === 'setup_pin' || mode === 'confirm_pin' ? themeHexMap[selectedTheme] : '#10b981';
-                  return (
-                    <View
-                      key={i}
-                      style={[
-                        styles.pinDot,
-                        isActive && [styles.pinDotActive, { backgroundColor: dotColor, borderColor: dotColor }],
-                        errorMsg ? styles.pinDotError : null,
-                        { width: isSmallScreen ? 16 : 20, height: isSmallScreen ? 16 : 20, borderRadius: isSmallScreen ? 8 : 10 }
-                      ]}
-                    />
-                  );
-                })}
-              </View>
-            </Animated.View>
-          )}
-
-          {/* Error & Loading Messages */}
-          <View style={styles.errorContainer}>
-            {errorMsg ? (
-              <Text style={styles.errorText}>{errorMsg}</Text>
-            ) : null}
-            {isAuthenticating && !errorMsg ? (
-              <Text style={styles.loadingText}>
-                {mode === 'confirm_pin' ? 'Setting up...' : 'Authenticating...'}
-              </Text>
-            ) : null}
+          <View style={styles.settingsHeader}>
+            <Pressable onPress={() => setSettingsModalVisible(true)} style={styles.settingsIcon}>
+              <Ionicons name="shield-checkmark-outline" size={24} color={Colors.textTertiary} />
+            </Pressable>
           </View>
 
-          {/* Back button during confirm mode */}
-          {mode === 'confirm_pin' && !isAuthenticating && (
-            <Pressable
-              style={styles.backBtn}
-              onPress={() => {
-                setMode('setup_pin');
-                setPin('');
-                setSetupPin('');
-                setErrorMsg('');
-              }}
-            >
-              <Ionicons name="arrow-back" size={16} color="#94a3b8" />
-              <Text style={styles.backBtnText}>Re-enter PIN</Text>
-            </Pressable>
-          )}
-
-          {/* Numpad */}
-          {['login', 'setup_pin', 'confirm_pin'].includes(mode) && (
-            <Animated.View style={[styles.numpadContainer, { opacity: fadeAnim }]}>
-              {[
-                ['1', '2', '3'],
-                ['4', '5', '6'],
-                ['7', '8', '9'],
-                ['',  '0', 'del'],
-              ].map((row, rIdx) => (
-                <View key={rIdx} style={styles.row}>
-                  {row.map((btn, cIdx) => (
-                    <Pressable
-                      key={cIdx}
-                      onPress={() => {
-                        if (btn === 'del') handleDelete();
-                        else if (btn) handleDial(btn);
-                      }}
-                      style={({ pressed }) => [
-                        styles.numBtn,
-                        { 
-                          width: isSmallScreen ? 65 : 80, 
-                          height: isSmallScreen ? 65 : 80, 
-                          borderRadius: isSmallScreen ? 32.5 : 40 
-                        },
-                        !btn && styles.numBtnHidden,
-                        pressed && btn && styles.numBtnPressed,
-                      ]}
-                      disabled={!btn || isAuthenticating}
-                    >
-                      {btn === 'del' ? (
-                        <Ionicons name="backspace-outline" size={28} color="#e2e8f0" />
-                      ) : (
-                        <Text style={styles.numText}>{btn}</Text>
-                      )}
-                    </Pressable>
-                  ))}
-                </View>
-              ))}
-            </Animated.View>
-          )}
-          
-          {mode === 'loading' && (
-            <View style={styles.loadingContainer}>
-              <Text style={styles.loadingText}>Connecting...</Text>
-            </View>
-          )}
-
-          {mode === 'connection_error' && (
-            <View style={styles.errorView}>
-              <Ionicons name="cloud-offline-outline" size={64} color="#f43f5e" style={{ marginBottom: 20 }} />
-              <Text style={styles.errorTitle}>Connection Failed</Text>
-              <Text style={styles.errorSubtitle}>
-                Could not connect to the database. Please check your internet or tunnel status.
-              </Text>
-              <Pressable 
-                style={styles.retryBtn} 
-                onPress={() => {
-                  setMode('loading');
-                  hasUsersQuery.refetch();
-                }}
+          <ScrollView 
+            contentContainerStyle={styles.scrollContent} 
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            scrollEnabled={loginMode !== 'pin'}
+          >
+            <View style={styles.header}>
+              <LinearGradient
+                colors={[Colors.accent, Colors.accentPurple]}
+                style={styles.logoBadge}
               >
-                <Text style={styles.retryBtnText}>Retry Connection</Text>
-              </Pressable>
-
-              <Pressable 
-                style={styles.settingsLink} 
-                onPress={() => setShowServerSettings(true)}
-              >
-                <Ionicons name="settings-outline" size={16} color="#64748b" />
-                <Text style={styles.settingsLinkText}>Server Settings</Text>
-              </Pressable>
-            </View>
-          )}
-
-          {/* Server Settings Modal (Simple overlay for now) */}
-          {showServerSettings && (
-            <View style={styles.modalOverlay}>
-              <View style={styles.modalContent}>
-                <Text style={styles.modalTitle}>Server Settings</Text>
-                <Text style={styles.modalDesc}>Enter your tunnel or cloud URL</Text>
-                
-                <View style={styles.inputGroup}>
-                  <Ionicons name="link-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="https://your-url.loca.lt"
-                    placeholderTextColor="#64748b"
-                    value={customServerUrl}
-                    onChangeText={setCustomServerUrl}
-                    autoCapitalize="none"
-                  />
-                </View>
-
-                <View style={styles.modalBtns}>
-                  <Pressable 
-                    style={[styles.modalBtn, styles.modalBtnSecondary]} 
-                    onPress={() => setShowServerSettings(false)}
-                  >
-                    <Text style={styles.modalBtnTextSecondary}>Cancel</Text>
-                  </Pressable>
-                  <Pressable 
-                    style={[styles.modalBtn, styles.modalBtnPrimary]} 
-                    onPress={() => {
-                      setBaseUrl(customServerUrl);
-                      setShowServerSettings(false);
-                      setMode('loading');
-                      hasUsersQuery.refetch();
-                    }}
-                  >
-                    <Text style={styles.modalBtnTextPrimary}>Connect</Text>
-                  </Pressable>
-                </View>
+                <Ionicons name="restaurant" size={32} color="#fff" />
+              </LinearGradient>
+              <Text style={styles.title}>TableBook</Text>
+              <View style={styles.badgeContainer}>
+                <Text style={styles.badgeText}>SaaS ENTERPRISE</Text>
               </View>
+              <Text style={styles.subtitle}>
+                {loginMode === 'email' ? 'Manager Cloud Access' : 
+                 loginMode === 'pin' ? 'Quick Staff Entry' : 
+                 'Create Your Professional Instance'}
+              </Text>
             </View>
-          )}
 
-          {/* Contact Support Button */}
-          {['login', 'setup_info'].includes(mode) && (
-            <Pressable style={styles.supportBtn} onPress={handleSupportWhatsApp}>
-              <FontAwesome name="whatsapp" size={20} color="#22c55e" />
-              <Text style={styles.supportText}>Contact Support</Text>
-            </Pressable>
-          )}
+            <View style={styles.card}>
+              {loginMode === 'pin' ? (
+                  <View style={styles.pinSection}>
+                    <View style={styles.pinDots}>
+                      {[0, 1, 2, 3].map((i) => (
+                        <View
+                          key={i}
+                          style={[
+                            styles.pinDot,
+                            pin.length > i && styles.pinDotFilled,
+                            pin.length === i && styles.pinDotActive,
+                          ]}
+                        />
+                      ))}
+                    </View>
 
+                    <View style={styles.numpad}>
+                      <View style={styles.numRow}>
+                        {[1, 2, 3].map((num) => (
+                          <Pressable
+                            key={num}
+                            style={({ pressed }) => [styles.numBtn, pressed && styles.numBtnPressed] as any}
+                            onPress={() => handleDial(num.toString())}
+                          >
+                            <Text style={styles.numText}>{num}</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                      <View style={styles.numRow}>
+                        {[4, 5, 6].map((num) => (
+                          <Pressable
+                            key={num}
+                            style={({ pressed }) => [styles.numBtn, pressed && styles.numBtnPressed] as any}
+                            onPress={() => handleDial(num.toString())}
+                          >
+                            <Text style={styles.numText}>{num}</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                      <View style={styles.numRow}>
+                        {[7, 8, 9].map((num) => (
+                          <Pressable
+                            key={num}
+                            style={({ pressed }) => [styles.numBtn, pressed && styles.numBtnPressed] as any}
+                            onPress={() => handleDial(num.toString())}
+                          >
+                            <Text style={styles.numText}>{num}</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                      <View style={styles.numRow}>
+                        <Pressable
+                          style={({ pressed }) => [styles.numBtn, pressed && styles.numBtnPressed] as any}
+                          onPress={() => {
+                            setPin('');
+                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                          }}
+                        >
+                          <Ionicons name="close-outline" size={24} color="#f87171" />
+                        </Pressable>
+                        <Pressable
+                          style={({ pressed }) => [styles.numBtn, pressed && styles.numBtnPressed] as any}
+                          onPress={() => handleDial('0')}
+                        >
+                          <Text style={styles.numText}>0</Text>
+                        </Pressable>
+                        <Pressable
+                          style={({ pressed }) => [styles.numBtn, pressed && styles.numBtnPressed] as any}
+                          onPress={handleBackspace}
+                        >
+                          <Ionicons name="backspace-outline" size={24} color="#fff" />
+                        </Pressable>
+                      </View>
+                    </View>
+
+                    <Pressable 
+                      style={({ pressed }) => [
+                        styles.actionBtnGradient, 
+                        { marginTop: 20, width: '100%', opacity: pin.length === 4 ? 1 : 0.5 },
+                        pressed && { transform: [{ scale: 0.98 }] }
+                      ]} 
+                      onPress={() => pin.length === 4 && pinLoginMutation.mutate({ pin })}
+                      disabled={loading || pin.length < 4}
+                    >
+                      <LinearGradient
+                        colors={[Colors.accent, Colors.accentPurple]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={[styles.actionBtnGradient, { width: '100%' }]}
+                      >
+                        {loading ? <ActivityIndicator color="#fff" /> : (
+                          <Text style={styles.actionBtnText}>Secure Entry</Text>
+                        )}
+                      </LinearGradient>
+                    </Pressable>
+                  </View>
+              ) : (
+                <View style={styles.formSection}>
+                  {loginMode === 'register' && (
+                    <>
+                      <View style={styles.inputGroup}>
+                        <Text style={styles.label}>Establishment Name</Text>
+                        <TextInput
+                          style={styles.input}
+                          value={restaurantName}
+                          onChangeText={setRestaurantName}
+                          placeholder="e.g. The Grand Bistro"
+                          placeholderTextColor="#475569"
+                        />
+                      </View>
+                    </>
+                  )}
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Cloud Identity (Email)</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={email}
+                      onChangeText={setEmail}
+                      placeholder="manager@domain.com"
+                      placeholderTextColor="#475569"
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                    />
+                  </View>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Secure Key (Password)</Text>
+                    <View style={styles.passwordContainer}>
+                      <TextInput
+                        style={[styles.input, { flex: 1 }]}
+                        value={password}
+                        onChangeText={setPassword}
+                        placeholder="••••••••"
+                        placeholderTextColor="#475569"
+                        secureTextEntry={!showPassword}
+                      />
+                      <Pressable 
+                        style={styles.eyeIcon} 
+                        onPress={() => setShowPassword(!showPassword)}
+                      >
+                        <Ionicons 
+                          name={showPassword ? "eye-off-outline" : "eye-outline"} 
+                          size={20} 
+                          color="#64748b" 
+                        />
+                      </Pressable>
+                    </View>
+                  </View>
+
+                  <Pressable 
+                    onPress={handleAuthAction}
+                    disabled={loading}
+                    style={({ pressed }) => [
+                      { marginTop: 12, opacity: pressed ? 0.9 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] }
+                    ]}
+                  >
+                    <LinearGradient
+                      colors={[Colors.accent, Colors.accentPurple]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.actionBtnGradient}
+                    >
+                      {loading ? (
+                        <ActivityIndicator color="#fff" />
+                      ) : (
+                        <Text style={styles.actionBtnText}>
+                          {loginMode === 'email' ? 'Authenticate' : 'Initialize Instance'}
+                        </Text>
+                      )}
+                    </LinearGradient>
+                  </Pressable>
+
+                  <View style={styles.socialDivider}>
+                    <View style={styles.dividerLine} />
+                    <Text style={styles.dividerText}>SECURE LOGIN OPTIONS</Text>
+                    <View style={styles.dividerLine} />
+                  </View>
+
+                  <Pressable 
+                    style={styles.googleBtn} 
+                    onPress={handleGoogleLogin}
+                    disabled={loading || !request}
+                  >
+                    <Ionicons name="logo-google" size={20} color="#fff" style={{ marginRight: 12 }} />
+                    <Text style={styles.googleBtnText}>Continue with Google</Text>
+                  </Pressable>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.footer}>
+              {loginMode === 'email' ? (
+                <View style={styles.footerLinks}>
+                  <Pressable onPress={() => setLoginMode('pin')}>
+                    <Text style={styles.toggleText}>Staff Terminal Entry</Text>
+                  </Pressable>
+                  <Pressable onPress={() => setLoginMode('register')}>
+                    <Text style={styles.subToggleText}>New Instance? <Text style={styles.accentText}>Get Started</Text></Text>
+                  </Pressable>
+                </View>
+              ) : loginMode === 'pin' ? (
+                <Pressable onPress={() => setLoginMode('email')}>
+                  <Text style={styles.toggleText}>Administrator Cloud Login</Text>
+                </Pressable>
+              ) : (
+                <Pressable onPress={() => setLoginMode('email')}>
+                  <Text style={styles.toggleText}>Already Registered? <Text style={styles.accentText}>Sign In</Text></Text>
+                </Pressable>
+              )}
+            </View>
+          </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
-    </LinearGradient>
+
+      <Modal visible={settingsModalVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Infrastructure Core</Text>
+              <Pressable onPress={() => setSettingsModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#64748b" />
+              </Pressable>
+            </View>
+            
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
+              <Text style={styles.modalLabel}>Instance Brand Name</Text>
+              <TextInput
+                style={styles.modalInput}
+                value={tempAppName}
+                onChangeText={setTempAppName}
+                placeholder="TableBook Restaurant"
+                placeholderTextColor="#334155"
+              />
+
+              <Text style={styles.modalLabel}>Remote Infrastructure URL</Text>
+              <TextInput
+                style={styles.modalInput}
+                value={tempUrl}
+                onChangeText={setTempUrl}
+                placeholder="https://your-api.render.com"
+                placeholderTextColor="#334155"
+                autoCapitalize="none"
+              />
+
+              <Text style={styles.modalLabel}>Master Security PIN</Text>
+              <TextInput
+                style={styles.modalInput}
+                value={tempMasterPin}
+                onChangeText={setTempMasterPin}
+                placeholder="1234"
+                placeholderTextColor="#334155"
+                keyboardType="number-pad"
+                maxLength={6}
+              />
+
+              <Text style={styles.modalLabel}>Visual Theme Core</Text>
+              <View style={styles.themeSelector}>
+                {(['emerald', 'blue', 'rose', 'amber', 'violet'] as const).map((color) => (
+                  <Pressable 
+                    key={color}
+                    onPress={() => setTempThemeColor(color)}
+                    style={[
+                      styles.themeOption,
+                      { backgroundColor: color === 'emerald' ? '#10b981' : color === 'blue' ? '#3b82f6' : color === 'rose' ? '#f43f5e' : color === 'amber' ? '#f59e0b' : '#8b5cf6' },
+                      tempThemeColor === color && styles.themeOptionActive
+                    ]}
+                  />
+                ))}
+              </View>
+
+              <Pressable style={styles.saveBtn} onPress={handleSaveSettings}>
+                <Text style={styles.saveBtnText}>Save All Synchronizations</Text>
+              </Pressable>
+            </ScrollView>
+
+            <View style={styles.dangerZone}>
+              <Pressable style={styles.resetBtn} onPress={handleEmergencyReset}>
+                <Ionicons name="refresh-outline" size={18} color="#ef4444" />
+                <Text style={styles.resetBtnText}>Factory Data Purge</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  safe: {
-    flex: 1,
-  },
-  content: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.xl,
-  },
-  headerContainer: {
-    alignItems: 'center',
-    marginBottom: 32,
-  },
-  logoCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: Spacing.md,
-    ...Shadows.md,
-  },
-  logoGradient: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  brand: {
-    ...Typography.displayMedium,
-    color: '#f8fafc',
-    fontSize: 32,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-  },
-  subtitle: {
-    ...Typography.body,
-    color: '#94a3b8',
-    marginTop: Spacing.xs,
-    fontSize: 15,
-    textTransform: 'uppercase',
-    letterSpacing: 1.5,
-  },
-  helpText: {
-    color: '#64748b',
-    fontSize: 13,
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  // Form Inputs
-  infoForm: {
-    width: '90%',
-    maxWidth: 360,
-    gap: Spacing.md,
-    marginBottom: Spacing.xl,
-  },
-  inputGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    height: 56,
-  },
-  inputIcon: {
-    marginRight: 12,
-  },
-  input: {
-    flex: 1,
-    color: '#fff',
-    fontSize: 16,
-    height: '100%',
-  },
-  continueBtn: {
-    marginTop: Spacing.sm,
-    borderRadius: 16,
-    overflow: 'hidden',
-    ...Shadows.md,
-  },
-  continueBtnGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    gap: 8,
-  },
-  continueBtnText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  // PIN Display
-  pinDisplay: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: Spacing.lg,
-    marginBottom: Spacing.sm,
-  },
-  pinDot: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  pinDotActive: {
-    backgroundColor: '#10b981',
-    borderColor: '#10b981',
-    transform: [{ scale: 1.1 }],
-  },
-  pinDotError: {
-    backgroundColor: '#ef4444',
-    borderColor: '#ef4444',
-  },
-  errorContainer: {
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: Spacing.lg,
-  },
-  errorText: {
-    color: '#f87171',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  loadingText: {
-    color: '#10b981',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  loadingContainer: {
-    height: 200,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  backBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: Spacing.lg,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  backBtnText: {
-    color: '#94a3b8',
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  numpadContainer: {
-    width: '90%',
-    maxWidth: 360,
-  },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: Spacing.md,
-  },
-  numBtn: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  colorPickerContainer: {
-    marginTop: 8,
-  },
-  label: {
-    color: '#94a3b8',
-    fontSize: 14,
-    marginBottom: 12,
-  },
-  colorRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  colorCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 3,
-    borderColor: 'transparent',
-  },
-  colorCircleActive: {
-    borderColor: '#fff',
-    transform: [{ scale: 1.1 }],
-  },
-  numBtnHidden: {
-    opacity: 0,
-  },
-  numBtnPressed: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    transform: [{ scale: 0.95 }],
-  },
-  numText: {
-    color: '#f8fafc',
-    fontSize: 32,
-    fontWeight: '300',
-  },
-  supportBtn: {
-    position: 'absolute',
-    bottom: 40,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(34, 197, 94, 0.1)',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(34, 197, 94, 0.2)',
-  },
-  supportText: {
-    color: '#22c55e',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  errorView: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-    backgroundColor: 'rgba(244, 63, 94, 0.05)',
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(244, 63, 94, 0.1)',
-    width: '90%',
-    maxWidth: 360,
-  },
-  errorTitle: {
-    ...Typography.heading,
-    color: '#f8fafc',
-    marginBottom: 8,
-  },
-  errorSubtitle: {
-    ...Typography.body,
-    color: '#94a3b8',
-    textAlign: 'center',
-    marginBottom: 24,
-    lineHeight: 20,
-  },
-  retryBtn: {
-    backgroundColor: '#f43f5e',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    ...Shadows.sm,
-  },
-  retryBtnText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  settingsLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 20,
-    opacity: 0.7,
-  },
-  settingsLinkText: {
-    color: '#64748b',
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  modalOverlay: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 2000,
-  },
-  modalContent: {
-    width: '85%',
-    backgroundColor: '#1e293b',
-    borderRadius: 24,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  modalTitle: {
-    ...Typography.heading,
-    color: '#fff',
-    fontSize: 20,
-    marginBottom: 4,
-  },
-  modalDesc: {
-    color: '#94a3b8',
-    fontSize: 14,
-    marginBottom: 20,
-  },
-  modalBtns: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 24,
-  },
-  modalBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalBtnPrimary: {
-    backgroundColor: '#10b981',
-  },
-  modalBtnSecondary: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-  },
-  modalBtnTextPrimary: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  modalBtnTextSecondary: {
-    color: '#94a3b8',
-    fontWeight: '600',
-  }
+  root: { flex: 1, backgroundColor: '#020617' },
+  glowCircle: { position: 'absolute', width: 450, height: 450, borderRadius: 225 },
+  container: { flex: 1 },
+  settingsHeader: { padding: 16, alignItems: 'flex-end' },
+  settingsIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.03)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
+  scrollContent: { paddingHorizontal: 28, paddingBottom: 60, paddingTop: 10 },
+  header: { alignItems: 'center', marginBottom: 20 },
+  logoBadge: { width: 64, height: 64, borderRadius: 24, alignItems: 'center', justifyContent: 'center', marginBottom: 16, ...Shadows.neon },
+  title: { fontSize: 32, fontWeight: '900', color: '#fff', letterSpacing: -1.5 },
+  badgeContainer: { backgroundColor: 'rgba(56, 189, 248, 0.1)', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 100, borderWidth: 1, borderColor: 'rgba(56, 189, 248, 0.2)', marginTop: 4 },
+  badgeText: { color: '#38bdf8', fontSize: 9, fontWeight: '900', letterSpacing: 1.2 },
+  subtitle: { fontSize: 14, color: '#64748b', fontWeight: '600', marginTop: 8, textAlign: 'center', lineHeight: 20 },
+  
+  card: { backgroundColor: '#0f172a', borderRadius: 32, padding: 24, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', ...Shadows.soft },
+  
+  // PIN Section
+  pinSection: { alignItems: 'center' },
+  pinDots: { flexDirection: 'row', gap: 20, marginBottom: 32 },
+  pinDot: { width: 14, height: 14, borderRadius: 7, borderWidth: 2, borderColor: 'rgba(255,255,255,0.15)' },
+  pinDotActive: { borderColor: Colors.accent, transform: [{ scale: 1.1 }] },
+  pinDotFilled: { backgroundColor: Colors.accent, borderColor: Colors.accent, ...Shadows.neon },
+  numpad: { alignItems: 'center', marginTop: 10 },
+  numRow: { flexDirection: 'row', gap: 20, marginBottom: 20, justifyContent: 'center' },
+  numBtn: { width: 68, height: 68, borderRadius: 34, backgroundColor: 'rgba(255,255,255,0.03)', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.08)' },
+  numBtnPressed: { backgroundColor: 'rgba(255,255,255,0.1)', borderColor: Colors.accent },
+  numBtnEmpty: { width: 68, height: 68 },
+  numText: { fontSize: 26, fontWeight: '600', color: '#fff' },
+  glowWrapper: { position: 'absolute', width: 450, height: 450, overflow: 'hidden', borderRadius: 225 },
+
+  // Form Section
+  formSection: { gap: 22 },
+  inputGroup: { gap: 10 },
+  label: { color: '#64748b', fontSize: 11, fontWeight: '800', marginLeft: 6, textTransform: 'uppercase', letterSpacing: 1.2 },
+  input: { backgroundColor: 'rgba(2, 6, 23, 0.8)', borderRadius: 18, padding: 20, color: '#fff', fontSize: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.04)' },
+  passwordContainer: { flexDirection: 'row', alignItems: 'center' },
+  eyeIcon: { position: 'absolute', right: 20 },
+  actionBtnGradient: { borderRadius: 20, height: 60, alignItems: 'center', justifyContent: 'center', ...Shadows.neon },
+  actionBtnText: { color: '#fff', fontSize: 17, fontWeight: '900', letterSpacing: 0.8 },
+
+  socialDivider: { flexDirection: 'row', alignItems: 'center', marginVertical: 12 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: 'rgba(255,255,255,0.06)' },
+  dividerText: { color: '#475569', marginHorizontal: 16, fontSize: 10, fontWeight: '900', letterSpacing: 1 },
+  googleBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 60, borderRadius: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', backgroundColor: 'rgba(255,255,255,0.01)' },
+  googleBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+
+  footer: { marginTop: 24, alignItems: 'center' },
+  footerLinks: { alignItems: 'center', gap: 18 },
+  toggleText: { color: Colors.accent, fontSize: 16, fontWeight: '800' },
+  subToggleText: { color: '#475569', fontSize: 15, fontWeight: '600' },
+  accentText: { color: Colors.accent, fontWeight: '800' },
+
+  // Modal Styles
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(2, 6, 23, 0.92)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: '#0f172a', borderTopLeftRadius: 44, borderTopRightRadius: 44, padding: 32, paddingBottom: 64, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 },
+  modalTitle: { color: '#fff', fontSize: 24, fontWeight: '900' },
+  modalLabel: { color: '#475569', fontSize: 12, fontWeight: '900', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1 },
+  modalInput: { backgroundColor: '#020617', borderRadius: 18, padding: 20, color: '#fff', fontSize: 16, marginBottom: 28, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+  saveBtn: { backgroundColor: Colors.accent, borderRadius: 18, height: 60, alignItems: 'center', justifyContent: 'center', marginTop: 12, ...Shadows.neon },
+  saveBtnText: { color: '#fff', fontSize: 17, fontWeight: '900' },
+  themeSelector: { flexDirection: 'row', gap: 14, marginBottom: 28 },
+  themeOption: { width: 44, height: 44, borderRadius: 22, opacity: 0.5, borderWidth: 2, borderColor: 'transparent' },
+  themeOptionActive: { opacity: 1, borderColor: '#fff', transform: [{ scale: 1.1 }] },
+  dangerZone: { marginTop: 36, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)', paddingTop: 28 },
+  resetBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 14, backgroundColor: 'rgba(239, 68, 68, 0.08)', padding: 20, borderRadius: 18 },
+  resetBtnText: { color: '#f87171', fontSize: 15, fontWeight: '900' },
 });

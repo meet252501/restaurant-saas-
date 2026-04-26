@@ -1,11 +1,10 @@
 import cron from 'node-cron';
 import { getDb } from '../db';
-import { bookings, deliveryOrders, customers } from '../../drizzle/schema';
 import { eq, and, gte, lte, sql } from 'drizzle-orm';
 import { NotificationService } from './notification';
 import { GoogleSheetsService, ManagerEmailService } from './googleSheets';
-import { tursoClient } from './tursoClient';
 import crypto from 'crypto';
+import { bookings, deliveryOrders, customers } from '../db';
 
 /**
  * Automation Service
@@ -142,8 +141,7 @@ export const AutomationService = {
         // Reset all tables to 'available' (Only at the start of a new day)
         // Note: In an offline-first architecture, table status is stateful.
         // We might just want to let the staff manually reset, but for now we keep the automated reset.
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { tables } = require('../../drizzle/schema');
+        const { tables } = require('../db');
         await db.update(tables).set({ status: 'available' });
         
         // Wipe old delivery orders older than 4 days
