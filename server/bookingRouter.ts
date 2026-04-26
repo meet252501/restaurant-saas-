@@ -293,7 +293,7 @@ export const bookingRouter = router({
         MOCK_BOOKINGS.push(newBooking);
       } else {
         try {
-          await db.transaction(async (tx) => {
+          await db.transaction(async (tx: any) => {
             // Double-booking check inside transaction
             const existingBooking = await tx
               .select()

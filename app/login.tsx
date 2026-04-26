@@ -36,8 +36,11 @@ export default function LoginScreen() {
     themeColor, setThemeColor,
     masterPin, setMasterPin,
     baseUrl, setBaseUrl,
+    setSession,
     resetAll 
   } = useSaaSStore();
+
+  const router = useRouter();
 
   const [tempUrl, setTempUrl] = useState(baseUrl);
   const [tempAppName, setTempAppName] = useState(appName);
@@ -443,6 +446,7 @@ export default function LoginScreen() {
                     </LinearGradient>
                   </Pressable>
 
+                  {/* 
                   <View style={styles.socialDivider}>
                     <View style={styles.dividerLine} />
                     <Text style={styles.dividerText}>SECURE LOGIN OPTIONS</Text>
@@ -457,6 +461,7 @@ export default function LoginScreen() {
                     <Ionicons name="logo-google" size={20} color="#fff" style={{ marginRight: 12 }} />
                     <Text style={styles.googleBtnText}>Continue with Google</Text>
                   </Pressable>
+                  */}
                 </View>
               )}
             </View>
